@@ -115,6 +115,67 @@ impl Bridge {
     }
 }
 
+/// `MDCRAFT_CONTROL_PORT`: turn on agent control without `--control`, on this port (0 = any
+/// free port).
+pub fn env_control_port() -> Option<u16> {
+    control_port_setting().and_then(|(v, _)| parse_control_port(Some(&v)))
+}
+
+/// The raw `MDCRAFT_CONTROL_PORT` value and where it came from ("environment" or "launchctl").
+///
+/// Apps opened from Finder, the Dock or Spotlight never see a command line or the shell's
+/// variables, and current macOS versions don't reliably hand them what `launchctl setenv`
+/// set either. So when the process environment doesn't have it, ask launchd directly
+/// (`launchctl getenv MDCRAFT_CONTROL_PORT`), which always answers with the session's value.
+pub fn control_port_setting() -> Option<(String, &'static str)> {
+    if let Some(v) = std::env::var("MDCRAFT_CONTROL_PORT").ok().filter(|v| !v.trim().is_empty()) {
+        return Some((v, "environment"));
+    }
+    launchd_value("MDCRAFT_CONTROL_PORT").map(|v| (v, "launchctl"))
+}
+
+#[cfg(target_os = "macos")]
+fn launchd_value(name: &str) -> Option<String> {
+    use std::process::{Command, Stdio};
+    let out = Command::new("/bin/launchctl").args(["getenv", name]).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!v.is_empty()).then_some(v)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn launchd_value(_name: &str) -> Option<String> {
+    None
+}
+
+fn parse_control_port(v: Option<&str>) -> Option<u16> {
+    let v = v.map(str::trim).filter(|v| !v.is_empty())?;
+    match v.parse::<u16>() {
+        Ok(p) => Some(p),
+        Err(_) => {
+            eprintln!("mdcraft: ignoring MDCRAFT_CONTROL_PORT={v}: not a port number (1-65535, or 0 for any free port)");
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod env_tests {
+    #[test]
+    fn parses_the_port() {
+        use super::parse_control_port as p;
+        assert_eq!(p(Some("7985")), Some(7985));
+        assert_eq!(p(Some(" 7985\n")), Some(7985));
+        assert_eq!(p(Some("0")), Some(0));
+        assert_eq!(p(Some("")), None);
+        assert_eq!(p(Some("abc")), None);
+        assert_eq!(p(Some("70000")), None);
+        assert_eq!(p(None), None);
+    }
+}
+
 /// `control/<port>.json`: how `mdcraft-cli mcp --connect` finds a window.
 pub fn control_dir() -> PathBuf {
     util::config_dir().join("control")

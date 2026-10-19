@@ -40,6 +40,7 @@ USAGE:
 ENVIRONMENT:
   MDCRAFT_SETTINGS    JSON renderer settings on top of the saved preferences
   MDCRAFT_CONFIG_DIR  where preferences and recent files live
+  MDCRAFT_CONTROL_PORT  serve: like --control on this port; mcp --connect: the window to drive
 ";
 
 fn main() -> ExitCode {
@@ -157,6 +158,13 @@ fn cmd_serve(args: &[String]) -> Result<(), String> {
         }
         i += 1;
     }
+    // MDCRAFT_CONTROL_PORT: control on, and its port unless --port says otherwise
+    if let Some(p) = mdcraft_core::agent::env_control_port() {
+        control = true;
+        if port.is_none() && p != 0 {
+            port = Some(p);
+        }
+    }
     if let Some(p) = port {
         let mut v = prefs::load()["render"].clone();
         v["port"] = serde_json::json!(p);
@@ -192,6 +200,13 @@ fn cmd_doctor() -> Result<(), String> {
     println!("documents     : {}", util::documents_dir().display());
     println!("templates     : {}", templates::all().len());
     println!("math          : {}", s.math);
+    println!(
+        "control port  : {}",
+        match mdcraft_core::agent::control_port_setting() {
+            Some((v, from)) => format!("MDCRAFT_CONTROL_PORT={v} (from {from}): windows opened from Finder, the Dock or Spotlight listen on it"),
+            None => "MDCRAFT_CONTROL_PORT not set: only windows started with --control can be driven".into(),
+        }
+    );
     println!(
         "plantuml      : {}",
         mdcraft_core::diagrams::plantuml_backend(&s).unwrap_or_else(|e| format!("not available — {e}"))

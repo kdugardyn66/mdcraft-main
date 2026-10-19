@@ -16,6 +16,17 @@
   changes. A file moved or deleted elsewhere is reported once and kept open as unsaved.
 - `mdcraft --copy-of FILE.md`: FILE as a new, unsaved document. New API routes for the page:
   `GET /api/file/stat`, `POST /api/merge`; `/api/file` and `/api/file/save` return a `stamp`.
+- `MDCRAFT_CONTROL_PORT=PORT` turns on agent control like `--control PORT`, also for windows
+  opened from Finder or the Dock (on macOS: `launchctl setenv MDCRAFT_CONTROL_PORT 7985`).
+  A second window finds the port taken and uses a free one instead of failing to start.
+  `mdcraft-cli serve` reads it too, and a plain `mdcraft-cli mcp --connect` prefers that port.
+  On macOS, when the app's environment doesn't have it (apps opened from Spotlight, Finder or
+  the Dock often don't get `launchctl setenv` values), MdCraft asks `launchctl getenv`.
+  `mdcraft-cli doctor` shows the port and where it came from.
+- `packaging/macos/package.sh` builds the `.dmg` step by step (a hidden image with Spotlight
+  off, unmounted with retries, then compressed) instead of `hdiutil create -srcfolder`, which
+  failed with "Resource busy" and left only the `.app`. The `.dmg` now has an Applications
+  shortcut to drag the app onto, and the script prints where both files are.
 - New dependency: `diffy` (MIT OR Apache-2.0) for the three-way merge.
 - macOS: `Info.plist` declares the Markdown type (`net.daringfireball.markdown`) so Finder
   matches `.md`/`.markdown` files on systems that don't define it.

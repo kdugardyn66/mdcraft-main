@@ -13,19 +13,27 @@ use std::time::Duration;
 pub enum Target {
     Port(u16),
     Newest,
+    /// MDCRAFT_CONTROL_PORT: this port when a window is there, otherwise the newest window.
+    Preferred(u16),
 }
 
 impl Target {
-    /// `7981`, `127.0.0.1:7981`, `localhost:7981` or empty (the newest window).
+    /// `7985`, `127.0.0.1:7985`, `localhost:7985` or empty: the window on MDCRAFT_CONTROL_PORT
+    /// when that is set (and not 0), otherwise the newest window.
     pub fn parse(s: Option<&str>) -> Result<Target, String> {
-        let Some(s) = s.map(str::trim).filter(|s| !s.is_empty()) else { return Ok(Target::Newest) };
+        let Some(s) = s.map(str::trim).filter(|s| !s.is_empty()) else {
+            return Ok(match mdcraft_core::agent::env_control_port() {
+                Some(p) if p != 0 => Target::Preferred(p),
+                _ => Target::Newest,
+            });
+        };
         let port = s.rsplit(':').next().unwrap_or(s);
         if let Some(host) = s.rsplit_once(':').map(|(h, _)| h) {
             if !matches!(host, "127.0.0.1" | "localhost" | "[::1]") {
                 return Err(format!("--connect only reaches mdcraft on this computer (127.0.0.1), not {host}"));
             }
         }
-        port.parse().map(Target::Port).map_err(|_| format!("--connect expects a port such as 7981, got `{s}`"))
+        port.parse().map(Target::Port).map_err(|_| format!("--connect expects a port such as 7985, got `{s}`"))
     }
 }
 
@@ -47,6 +55,14 @@ fn candidates(target: &Target) -> Result<Vec<Endpoint>, String> {
             read_control(&file)
                 .map(|e| vec![e])
                 .ok_or_else(|| format!("no mdcraft window with agent control on port {p}: start it with `mdcraft --control {p}`"))
+        }
+        Target::Preferred(p) => {
+            let mut list = candidates(&Target::Newest)?;
+            if let Some(i) = list.iter().position(|e| e.port == *p) {
+                let e = list.remove(i);
+                list.insert(0, e);
+            }
+            Ok(list)
         }
         Target::Newest => {
             let mut files: Vec<(std::time::SystemTime, PathBuf)> = std::fs::read_dir(&dir)
@@ -131,9 +147,9 @@ mod tests {
     #[test]
     fn targets() {
         assert!(matches!(Target::parse(None), Ok(Target::Newest)));
-        assert!(matches!(Target::parse(Some("7981")), Ok(Target::Port(7981))));
-        assert!(matches!(Target::parse(Some("127.0.0.1:7981")), Ok(Target::Port(7981))));
-        assert!(Target::parse(Some("example.com:7981")).is_err());
+        assert!(matches!(Target::parse(Some("7985")), Ok(Target::Port(7985))));
+        assert!(matches!(Target::parse(Some("127.0.0.1:7985")), Ok(Target::Port(7985))));
+        assert!(Target::parse(Some("example.com:7985")).is_err());
         assert!(Target::parse(Some("abc")).is_err());
     }
 }

@@ -6,6 +6,7 @@
 //! mdcraft --template ID             a new document from a template (report, pitch…)
 //! mdcraft --copy-of FILE.md         FILE as a new, unsaved document (a version changed elsewhere)
 //! mdcraft --control [PORT]          let AI agents drive this window (mdcraft-cli mcp --connect)
+//!                                   (or MDCRAFT_CONTROL_PORT=PORT, e.g. `launchctl setenv` on macOS)
 //! mdcraft --version
 //! ```
 //!
@@ -48,7 +49,7 @@ fn main() {
     }
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
-            "mdcraft {}\n\nUSAGE:\n  mdcraft [FILE.md]\n  mdcraft --copy-of FILE.md (FILE as a new, unsaved document)\n  mdcraft --template ID     (report, letter, pitch, status… see `mdcraft-cli templates`)\n  mdcraft --control [PORT]  let AI agents drive this window: mdcraft-cli mcp --connect [PORT]\n",
+            "mdcraft {}\n\nUSAGE:\n  mdcraft [FILE.md]\n  mdcraft --copy-of FILE.md (FILE as a new, unsaved document)\n  mdcraft --template ID     (report, letter, pitch, status… see `mdcraft-cli templates`)\n  mdcraft --control [PORT]  let AI agents drive this window: mdcraft-cli mcp --connect [PORT]\n\nENVIRONMENT:\n  MDCRAFT_CONTROL_PORT=PORT  like --control PORT (macOS: `launchctl setenv` reaches Finder/Dock launches)\n",
             env!("CARGO_PKG_VERSION")
         );
         return;
@@ -93,10 +94,13 @@ fn startup(args: &[String]) -> Value {
     Value::Null
 }
 
-/// `--control [PORT]`: Some(port) (0 = any free port) when agents may drive the window.
-fn control_port(args: &[String]) -> Option<u16> {
-    let i = args.iter().position(|a| a == "--control")?;
-    Some(args.get(i + 1).and_then(|p| p.parse().ok()).unwrap_or(0))
+/// `--control [PORT]`, or else `MDCRAFT_CONTROL_PORT`: Some(port) (0 = any free port) when
+/// agents may drive the window. The bool is true when the port came from the environment.
+fn control_port(args: &[String]) -> Option<(u16, bool)> {
+    match args.iter().position(|a| a == "--control") {
+        Some(i) => Some((args.get(i + 1).and_then(|p| p.parse().ok()).unwrap_or(0), false)),
+        None => mdcraft_core::agent::env_control_port().map(|p| (p, true)),
+    }
 }
 
 fn run(args: &[String]) -> Result<(), String> {
@@ -104,7 +108,17 @@ fn run(args: &[String]) -> Result<(), String> {
     linux_env();
 
     let control = control_port(args);
-    let app = mdcraft_core::start_on(Mode::Desktop, control.filter(|p| *p != 0))?;
+    let fixed = control.map(|(p, _)| p).filter(|p| *p != 0);
+    let app = match mdcraft_core::start_on(Mode::Desktop, fixed) {
+        // Every window is its own process and inherits MDCRAFT_CONTROL_PORT: the second one
+        // finds the port taken and uses a free one (agents reach it with --connect PORT, or
+        // the newest window with a plain --connect). An explicit --control PORT still fails.
+        Err(e) if control.map(|(_, env)| env).unwrap_or(false) => {
+            eprintln!("mdcraft: MDCRAFT_CONTROL_PORT {}: {e}; using a free port", fixed.unwrap_or(0));
+            mdcraft_core::start_on(Mode::Desktop, None)?
+        }
+        r => r?,
+    };
     if let Ok(mut s) = app.startup.lock() {
         *s = startup(args);
     }

@@ -47,7 +47,7 @@ Use the full path to `mdcraft-cli` if it is not on the `PATH` the client sees.
 | `--root DIR` | The agent may read and write only below `DIR`. Repeatable. |
 | `--automation-read-root DIR` | The agent may read below `DIR`. Repeatable. |
 | `--automation-write-root DIR` | The agent may write (and read) below `DIR`. Repeatable. |
-| `--connect [PORT]` | Also drive a window started with `mdcraft --control [PORT]`. Without a port, it connects to the most recently started window. |
+| `--connect [PORT]` | Also drive a window started with `mdcraft --control [PORT]`. Without a port, it connects to the window on `MDCRAFT_CONTROL_PORT` when that is set, otherwise to the most recently started window. |
 
 Without any root option, the agent can reach every file your user account can. Relative paths
 are resolved against the first root.
@@ -63,11 +63,36 @@ mdcraft --control 7985       # a fixed port
 mdcraft-cli serve --control  # the editor in a browser tab, for scripts and tests
 ```
 
-- Without `--control`, a window can't be driven: the `/api/agent/…` routes answer 403.
+- Without `--control` (or `MDCRAFT_CONTROL_PORT`, below), a window can't be driven: the
+  `/api/agent/…` routes answer 403.
 - With it, the window writes its port and a random session token to `control/<port>.json` in
   the settings folder. Only your user account can read that file, and the window removes it
   when it closes.
 - The server listens on 127.0.0.1 only and checks the token on every request.
+
+### Always on: `MDCRAFT_CONTROL_PORT`
+
+Set `MDCRAFT_CONTROL_PORT=PORT` to turn control on without `--control`, for example for windows
+opened by double-clicking a document, which never get a command line. `0` means any free port.
+`--control` on the command line wins over the variable.
+
+On macOS, apps opened from Finder, the Dock or Spotlight don't see variables from your shell
+profile. Set it for your login session instead; when MdCraft doesn't find the variable in its
+environment, it asks launchd (`launchctl getenv MDCRAFT_CONTROL_PORT`):
+
+```sh
+launchctl setenv MDCRAFT_CONTROL_PORT 7985   # until you log out; quit and reopen MdCraft
+lsof -iTCP:7985 -sTCP:LISTEN                 # check: mdcraft is listening
+mdcraft-cli doctor                           # shows the port MdCraft picks up, and from where
+```
+
+To keep it after logging out, put that `launchctl setenv` in a LaunchAgent in
+`~/Library/LaunchAgents/` that runs at login.
+
+Every window is its own process. The first one takes the port; a window opened while it is
+taken uses a free port instead (with an explicit `--control PORT` it stops with an error). A
+plain `mdcraft-cli mcp --connect` drives the window on `MDCRAFT_CONTROL_PORT` when there is
+one, otherwise the newest window. `mdcraft-cli serve` reads the variable too.
 
 ## Tools
 
