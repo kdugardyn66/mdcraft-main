@@ -1,6 +1,69 @@
 # Changelog
 
-## Unreleased
+## 0.2.2 — 2026-10-21
+
+### Templates and saving
+
+- **My templates** (File › New, and on Home when there are some): your own document and slide
+  templates, apart from the standard ones. *New document template* / *New slide template*,
+  *Save this document as a template*, and on each card **Edit** (opens the template file),
+  **Rename** and **Delete** (moves it to the Trash). Search and the Documents / Presentations
+  filter cover them too. Clicking one makes a new document with the placeholders filled in.
+- Template files: `.mdd` (document) and `.mds` (slide deck), plain Markdown, kept in
+  `templates/` in the settings folder. Finder knows them as MdCraft document / slide
+  templates (double-click to edit one); the Open window lists them.
+- **Save As** opens the system's Save window with a **File type** menu: *Markdown file (.md)*
+  or *Markdown document template (.mdd)* / *Markdown slide template (.mds)*, whichever the
+  document is. Templates are always saved in the templates folder
+  (`~/Library/Application Support/mdcraft/templates`), whatever folder the window shows: only
+  the name is used, the panel says so, and you are asked before an existing template with
+  that name is replaced. On macOS this is the native Save panel with an accessory menu; on Linux the GTK
+  dialog lists the types and the extension of the name decides. The Save As page inside the
+  File view is gone; a browser tab (`mdcraft-cli serve`) gets an in-app window with the same
+  File type choice.
+- **Export**: removed *Markdown copy* (use Save As) and *Plain text*.
+- Fixed: the Highlight button could wrap `==marked==` text in a span when clicked right after
+  moving the cursor.
+
+### Fixed
+
+- **After an update the window kept showing the previous version's interface** (for example
+  the old Save As page and Export page) when MdCraft runs on a fixed port (`--control PORT`,
+  `MDCRAFT_CONTROL_PORT`): the interface files were cached for a day under the same address.
+  They are now revalidated on every launch (`Cache-Control: no-cache` with an ETag; unchanged
+  files answer 304), and the page loads them with this build's fingerprint
+  (`/assets/app.js?v=…`), so a new build never runs with cached files, also right after
+  upgrading from 0.2.1.
+
+## 0.2.1 — 2026-10-21
+
+### Fonts and colours
+
+- **Font group** (Home tab), as in Word: a font box listing every font installed on the
+  computer (each shown in its own typeface, recently used first, type to filter), a size box
+  (8–72 pt, or type any size), grow and shrink, and **Highlight** and **Font color** as
+  drop-down buttons. Formatting is written as `<span style="…">` around words and as
+  `<div style="…">` (with blank lines) around whole paragraphs; changing it again updates the
+  same tag instead of nesting a new one, and removing the last property removes the tag.
+- **Colour picker** for highlight and font colour: Word's highlighter colours (plus soft ones)
+  or theme colours with lighter and darker shades, standard colours, **custom colours**
+  (type a #hex code or use More colors…; kept in your preferences, right-click one to remove
+  it), and No color / Automatic. The button applies the last colour picked; clicking it
+  inside a highlight removes it. `==marked==` text still works.
+- **Document fonts** (Design tab): body font, code font and size for the whole document,
+  written to the front matter as `mainfont`, `monofont` and `fontsize` (pandoc's names). The
+  code font list has fixed-width fonts first, then sans-serif fonts.
+- The front matter keys change the rendered document: preview, HTML export, printing and
+  `mdcraft-cli export`/MCP renders. They win over the theme's fonts; slides keep their own
+  text sizes. Unsafe values are ignored.
+- **File › Options › Document fonts**: default `mainfont`, `monofont` and `fontsize` that
+  new documents get in their front matter (presentations get the fonts, not the size), and a
+  button to use them for the open document.
+- `GET /api/fonts`: the installed fonts (macOS: /System/Library/Fonts, /Library/Fonts,
+  ~/Library/Fonts; Linux: /usr/share/fonts, ~/.local/share/fonts…), read from the font files
+  themselves (family name, fixed pitch, sans or serif), once per window, in a few hundred ms.
+
+### Files, agent control and packaging
 
 - macOS: opening a `.md` file from Finder (double-click, Open With, or dropping it on the Dock
   icon) now opens it. Finder sends documents as an Apple Event, which the app ignored; it only
@@ -23,10 +86,13 @@
   On macOS, when the app's environment doesn't have it (apps opened from Spotlight, Finder or
   the Dock often don't get `launchctl setenv` values), MdCraft asks `launchctl getenv`.
   `mdcraft-cli doctor` shows the port and where it came from.
-- `packaging/macos/package.sh` builds the `.dmg` step by step (a hidden image with Spotlight
-  off, unmounted with retries, then compressed) instead of `hdiutil create -srcfolder`, which
-  failed with "Resource busy" and left only the `.app`. The `.dmg` now has an Applications
-  shortcut to drag the app onto, and the script prints where both files are.
+- The macOS `.dmg` opens as a laid-out window: a background (`packaging/macos/dmg-background.png`
+  and `@2x` for Retina), the app on the left, an Applications shortcut on the right.
+  `packaging/macos/package.sh` builds it with `diskutil image` on macOS 26+ (hdiutil is
+  deprecated; older systems still use it), mounts the image visibly so Finder can save the
+  window layout, retries ejecting while the volume is busy, and prints where the files are.
+  `DMG_BACKGROUND=file.png` uses another background; `DMG_LAYOUT=0` skips the layout. The
+  layout step drives Finder, so Terminal needs permission to control Finder (macOS asks once).
 - New dependency: `diffy` (MIT OR Apache-2.0) for the three-way merge.
 - macOS: `Info.plist` declares the Markdown type (`net.daringfireball.markdown`) so Finder
   matches `.md`/`.markdown` files on systems that don't define it.

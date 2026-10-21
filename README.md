@@ -44,9 +44,9 @@ mdcraft brings together two projects:
 | Area | Highlights |
 |---|---|
 | **Editor** | CodeMirror 6 with Markdown highlighting, smart lists, search & replace, spell-check, word wrap, line numbers; slide separators and page breaks shown as labelled bands |
-| **Ribbon** | Home (clipboard, font, paragraph, live **Styles** gallery), Insert (cover page, page break, contents, tables with a grid picker, pictures, diagrams, charts, media, chemistry, links, footnotes, callouts, code, equations, date, emoji, symbols), Design (document themes, paper size, orientation, margins, watermark, numbered headings), Slides (new slide by layout, layouts, duplicate/move/delete, notes, background, slide themes, present, convert a document to slides), Review (spelling, word count, accessibility check), View (write / split / read, navigation pane, zoom, light / dark interface, dark page, focus mode), contextual **Table** tab |
+| **Ribbon** | Home (clipboard, font — font and size boxes with every installed font, highlight and font colour pickers —, paragraph, live **Styles** gallery), Insert (cover page, page break, contents, tables with a grid picker, pictures, diagrams, charts, media, chemistry, links, footnotes, callouts, code, equations, date, emoji, symbols), Design (document themes, document fonts, paper size, orientation, margins, watermark, numbered headings), Slides (new slide by layout, layouts, duplicate/move/delete, notes, background, slide themes, present, convert a document to slides), Review (spelling, word count, accessibility check), View (write / split / read, navigation pane, zoom, light / dark interface, dark page, focus mode), contextual **Table** tab |
 | **Preview** | Live as you type, scroll-synced with the cursor; double-click a block to edit it; pages for documents, 16:9 frames for slides |
-| **File view** | Start page with templates and recent / pinned documents, a template gallery with live thumbnails and search, Open and Save As with native dialogs or the built-in file browser, document properties and statistics, print settings, export, options |
+| **File view** | Start page with templates and recent / pinned documents, a template gallery with live thumbnails and search, **My templates** (your own document and slide templates: create, edit, rename, delete), Open, Save As in the system's Save window with a File type (Markdown file or Markdown template), document properties and statistics, print settings, export, options |
 | **Output** | Print / PDF (pages, slides one per page, notes), a self-contained web page with rendered diagrams, *Copy as formatted text* for Word and e-mail, plain text |
 | **Safety** | Unsaved documents are kept for recovery after a crash; closing asks to save; files are written atomically |
 | **For scripts** | `mdcraft-cli new / templates / render / export / serve` |
@@ -84,6 +84,9 @@ claude mcp add mdcraft-app -- mdcraft-cli mcp --connect --root ~/Documents
 Gemini CLI and other clients: [docs/mcp.md](docs/mcp.md).
 
 ## Templates
+
+Your own templates sit apart from these under **File › New › My templates**: `.mdd` files make
+documents, `.mds` files make slide decks (both plain Markdown). See [docs/templates.md](docs/templates.md#my-templates).
 
 | Documents (Word-style) | Theme | Presentations (PowerPoint-style) | Theme |
 |---|---|---|---|

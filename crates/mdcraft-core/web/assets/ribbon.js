@@ -23,6 +23,8 @@
     present: () => [{ label: 'From beginning', icon: 'present', cmd: 'slides.present', shortcut: 'F5' }, { label: 'From current slide', icon: 'present-current', cmd: 'slides.presentCurrent', shortcut: 'Shift+F5' }],
     date: () => { const d = new Date(); return [d.toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' }), d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }), d.toISOString().slice(0, 10), d.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })].map((f) => ({ label: f, run: () => E.insert(f) })); },
     media: () => [{ label: 'Video or audio file…', icon: 'video', cmd: 'insert.video' }, { label: 'Online video (YouTube, Vimeo)…', icon: 'web', cmd: 'insert.online' }],
+    highlight: (anchor) => { colorPicker(anchor, 'highlight'); return null; },
+    fontColor: (anchor) => { colorPicker(anchor, 'fontColor'); return null; },
     chem: () => [{ label: '3D molecule (Mol*)', icon: 'molecule', cmd: 'insert.molecule' }, { label: 'Chemical structure (SMILES)', icon: 'molecule', cmd: 'insert.smiles' }, { label: 'Chemical equation', icon: 'math', cmd: 'insert.math', args: { tex: '\\ce{CH4 + 2O2 -> CO2 + 2H2O}' } }],
   };
 
@@ -45,6 +47,194 @@
     MD.popup(anchor, h('div', label, grid, h('div.md-menu-sep'), more));
     return null;
   }
+  // ------------------------------------------------------------------ colour picker
+  // Word's colours: theme colours with lighter and darker shades, standard colours, and for
+  // highlighting Word's highlighter colours plus soft ones. "Custom colors" are the user's own
+  // (More colors… or a #hex code), kept in the preferences; right-click one to remove it.
+  const THEME = ['#FFFFFF', '#000000', '#E7E6E6', '#44546A', '#4472C4', '#ED7D31', '#A5A5A5', '#FFC000', '#5B9BD5', '#70AD47'];
+  const STANDARD = ['#C00000', '#FF0000', '#FFC000', '#FFFF00', '#92D050', '#00B050', '#00B0F0', '#0070C0', '#002060', '#7030A0'];
+  const HIGHLIGHT = ['yellow', '#00FF00', '#00FFFF', '#FF00FF', '#0000FF', '#FF0000', '#000080', '#008080', '#008000', '#800080', '#800000', '#808000', '#808080', '#C0C0C0', '#000000',
+    '#FFF2CC', '#E2EFDA', '#DDEBF7', '#FCE4D6', '#EDE7F6', '#FFE699', '#C6E0B4', '#BDD7EE', '#F8CBAD', '#D9D2E9'];
+  const mix = (hex, to, t) => { const n = parseInt(hex.slice(1), 16), c = [n >> 16, (n >> 8) & 255, n & 255].map((v) => Math.round(v + (to - v) * t)); return '#' + c.map((v) => v.toString(16).padStart(2, '0')).join('').toUpperCase(); };
+  const shades = (hex) => [hex, mix(hex, 255, 0.8), mix(hex, 255, 0.6), mix(hex, 255, 0.4), mix(hex, 0, 0.25), mix(hex, 0, 0.5)];
+  const PICKERS = {
+    highlight: { cmd: 'format.highlight', pref: 'highlightColor', fallback: 'yellow', none: 'No color', title: 'Highlight color' },
+    fontColor: { cmd: 'format.color', pref: 'fontColor', fallback: '#C00000', none: 'Automatic', title: 'Font color' },
+  };
+  let colorInput = null; // one hidden <input type=color>, outside the popup (the system panel outlives it)
+  function colorPicker(anchor, kind) {
+    const P = PICKERS[kind];
+    const pick = (color) => { MD.closeMenu(); MD.run(P.cmd, { color }); };
+    const swatch = (c, title) => {
+      const b = h('button.md-swatch', { title: title || c, style: { background: c }, dataset: { color: c } });
+      b.addEventListener('click', () => pick(c));
+      return b;
+    };
+    const current = MD.pref(P.pref) || P.fallback;
+    const panel = h('div.md-colors');
+    const noneBtn = h('button.md-menu-item.md-colors-none', h('span.md-swatch.md-swatch-none'), h('span.md-menu-label', P.none));
+    noneBtn.addEventListener('click', () => pick('none'));
+    panel.append(h('div.md-menu-header', P.title), noneBtn);
+    if (kind === 'highlight') {
+      panel.append(h('div.md-colors-label', 'Highlighter colors'), h('div.md-colors-grid', HIGHLIGHT.map((c) => swatch(c))));
+    } else {
+      const cols = THEME.map(shades);
+      const grid = h('div.md-colors-grid.md-colors-theme');
+      for (let r = 0; r < 6; r++) for (let c = 0; c < 10; c++) grid.append(swatch(cols[c][r], r === 0 ? cols[c][0] : cols[c][r] + (r < 4 ? ' (lighter)' : ' (darker)')));
+      panel.append(h('div.md-colors-label', 'Theme colors'), grid);
+    }
+    panel.append(h('div.md-colors-label', 'Standard colors'), h('div.md-colors-grid', STANDARD.map((c) => swatch(c))));
+    // custom colours
+    const custom = h('div.md-colors-grid.md-colors-custom');
+    const drawCustom = () => {
+      const list = MD.pref('customColors') || [];
+      custom.replaceChildren(...list.map((c) => {
+        const b = swatch(c, c + ' — right-click to remove');
+        b.addEventListener('contextmenu', (e) => { e.preventDefault(); MD.setPref('customColors', (MD.pref('customColors') || []).filter((x) => x !== c)); drawCustom(); });
+        return b;
+      }));
+      if (!list.length) custom.append(h('span.md-colors-empty', 'None yet'));
+    };
+    const addCustom = (c) => { const list = (MD.pref('customColors') || []).filter((x) => x.toLowerCase() !== c.toLowerCase()); list.unshift(c); MD.setPref('customColors', list.slice(0, 20)); };
+    drawCustom();
+    const hex = h('input.md-input.md-colors-hex', { placeholder: '#1F77B4', spellcheck: false, value: /^#/.test(current) ? current : '' });
+    const addHex = () => {
+      let v = hex.value.trim(); if (/^[0-9a-f]{3}([0-9a-f]{3})?$/i.test(v)) v = '#' + v;
+      if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v) && !(window.CSS && CSS.supports('color', v))) { hex.classList.add('md-bad'); return; }
+      addCustom(v.toUpperCase()); pick(v.toUpperCase());
+    };
+    hex.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addHex(); } });
+    const addBtn = h('button.md-btn.md-colors-add', { title: 'Add this colour to your custom colours and use it' }, 'Add');
+    addBtn.addEventListener('click', addHex);
+    const more = h('button.md-menu-item', MD.icon('palette', 18), h('span.md-menu-label', 'More colors…'));
+    more.addEventListener('click', () => {
+      if (!colorInput) { colorInput = h('input', { type: 'color', style: { position: 'fixed', left: '-100px', top: '0', opacity: '0' } }); document.body.append(colorInput); }
+      colorInput.value = /^#[0-9a-f]{6}$/i.test(current) ? current : '#ff0000';
+      colorInput.onchange = () => { const c = colorInput.value.toUpperCase(); addCustom(c); MD.run(P.cmd, { color: c }); };
+      MD.closeMenu();
+      colorInput.click();
+    });
+    panel.append(h('div.md-colors-label', 'Custom colors'), custom, h('div.md-colors-hexrow', hex, addBtn), h('div.md-menu-sep'), more);
+    MD.popup(anchor, panel, { cls: 'md-colors-menu', noFocus: true });
+  }
+
+  // ------------------------------------------------------------------ font and size boxes
+  /** The current font family / size for the boxes: at the cursor, else the document's. */
+  function fontState() {
+    let st = new Map();
+    try { st = E.styleAt(); } catch (e) { /* no document */ }
+    const fm = (MD.doc && MD.doc.open) ? E.frontMatter() : {};
+    const clean = (v) => String(v || '').replace(/\s*\(.*$/, '').trim();
+    return {
+      family: MD.plainFontName(st.get('font-family')) || clean(fm.mainfont),
+      size: (st.get('font-size') || fm.fontsize || '').replace(/\s*pt$/, ''),
+      docMain: clean(fm.mainfont), docMono: clean(fm.monofont), docSize: String(fm.fontsize || '').replace(/\s*pt$/, ''),
+    };
+  }
+  // fontFamily / fontSize: the selection (Home); docMain / docMono / docSize: the front matter (Design)
+  const BOX = {
+    fontFamily: { family: true, title: 'Font', placeholder: 'Theme font', state: 'family' },
+    fontSize: { family: false, title: 'Font size (points)', placeholder: '—', state: 'size' },
+    docMain: { family: true, title: 'Body font of the document (mainfont)', placeholder: 'Theme font', state: 'docMain', cmd: 'design.mainfont' },
+    docMono: { family: true, mono: true, title: 'Code font of the document (monofont)', placeholder: 'Theme code font', state: 'docMono', cmd: 'design.monofont' },
+    docSize: { family: false, title: 'Font size of the document (fontsize)', placeholder: 'Theme', state: 'docSize', cmd: 'design.fontsize' },
+  };
+  function fontBox(kind) {
+    const B = BOX[kind];
+    const family = B.family;
+    const input = h('input.md-font-input', { spellcheck: false, autocomplete: 'off', title: B.title, placeholder: B.placeholder, dataset: { fontbox: kind } });
+    const arrow = h('button.md-rb-arrow.md-font-arrow', { title: family ? 'Fonts' : 'Font sizes', tabIndex: -1 }, MD.icon('caret', 12));
+    const wrap = h('div.md-font-box.md-font-box-' + (family ? 'family' : 'size'), input, arrow);
+    let typed = false;
+    const apply = (v) => {
+      typed = false; MD.closeMenu();
+      if (B.cmd) MD.run(B.cmd, { value: v });
+      else MD.run(family ? 'format.fontFamily' : 'format.fontSize', family ? { family: v } : { size: v });
+    };
+    const open = (filter) => (family ? fontList(wrap, filter, apply, B.mono) : sizeList(wrap, apply, B.state));
+    arrow.addEventListener('mousedown', (e) => e.preventDefault());
+    arrow.addEventListener('click', () => { input.focus(); open(''); });
+    input.addEventListener('focus', () => input.select());
+    input.addEventListener('input', () => { typed = true; if (family) open(input.value); });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); const sel = document.querySelector('.md-font-menu .md-font-item.sel'); apply(sel && typed && family ? sel.dataset.family : input.value.trim()); }
+      else if (e.key === 'Escape') { e.preventDefault(); typed = false; MD.closeMenu(); refreshFontBoxes(true); E.focus(); }
+      else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (!document.querySelector('.md-font-menu')) { open(family && typed ? input.value : ''); return; }
+        const items = [...document.querySelectorAll('.md-font-menu .md-font-item')];
+        let i = items.findIndex((x) => x.classList.contains('sel'));
+        i = Math.max(0, Math.min(items.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)));
+        items.forEach((x, j) => x.classList.toggle('sel', j === i));
+        items[i] && items[i].scrollIntoView({ block: 'nearest' });
+        if (items[i]) { input.value = items[i].dataset.family ?? items[i].dataset.size; typed = true; }
+      }
+    });
+    input.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== input) { typed = false; refreshFontBoxes(true); } }, 200));
+    return wrap;
+  }
+  async function fontList(anchor, filter, apply, mono) {
+    let fonts = await MD.fonts();
+    // code fonts: fixed-width fonts first, then sans-serif fonts
+    if (mono) fonts = [...fonts.filter((f) => f.mono), ...fonts.filter((f) => !f.mono && f.sans)];
+    const q = (filter || '').trim().toLowerCase();
+    const recent = mono ? [] : (MD.pref('recentFonts') || []).filter((f) => !q || f.toLowerCase().includes(q));
+    const all = fonts.filter((f) => !q || f.family.toLowerCase().includes(q));
+    const item = (fam, sub) => {
+      const b = h('button.md-menu-item.md-font-item', { dataset: { family: fam }, title: fam },
+        h('span.md-font-sample', { style: { fontFamily: fam ? '"' + fam + '", system-ui' : null } }, fam || 'Theme font'), sub ? h('small', sub) : null);
+      b.addEventListener('mousedown', (e) => e.preventDefault());
+      b.addEventListener('click', () => apply(fam));
+      return b;
+    };
+    const list = h('div.md-menu-list.md-font-list');
+    if (!q) list.append(item('', mono ? 'the theme’s code font' : 'the document’s font'));
+    if (recent.length) list.append(h('div.md-menu-header', 'Recently used'), ...recent.map((f) => item(f)));
+    const header = (t) => h('div.md-menu-header', t);
+    if (!all.length) list.append(header(fonts.length ? 'No font matches “' + filter + '”' : 'Loading fonts…'));
+    else if (mono) {
+      const fixed = all.filter((f) => f.mono), sans = all.filter((f) => !f.mono);
+      if (fixed.length) list.append(header('Fixed width (' + fixed.length + ')'), ...fixed.map((f) => item(f.family)));
+      if (sans.length) list.append(header('Sans serif (' + sans.length + ')'), ...sans.map((f) => item(f.family)));
+    } else {
+      list.append(header('All fonts (' + all.length + ')'));
+      for (const f of all) list.append(item(f.family, f.mono ? 'fixed width' : ''));
+    }
+    const first = list.querySelector('.md-font-item');
+    if (first && q) first.classList.add('sel');
+    MD.popup(anchor, list, { cls: 'md-font-menu', noFocus: true });
+  }
+  function sizeList(anchor, apply, state) {
+    const list = h('div.md-menu-list.md-font-list.md-size-list');
+    const cur = fontState()[state || 'size'];
+    const item = (v, label) => {
+      const b = h('button.md-menu-item.md-font-item' + (String(v) === cur ? '.sel' : ''), { dataset: { size: v } }, h('span.md-menu-label', label || String(v)));
+      b.addEventListener('mousedown', (e) => e.preventDefault());
+      b.addEventListener('click', () => apply(v === '' ? '' : v + 'pt'));
+      return b;
+    };
+    list.append(item('', 'Theme size'), ...MD.fontSizes.map((v) => item(v)));
+    MD.popup(anchor, list, { cls: 'md-font-menu md-size-menu', noFocus: true });
+    list.querySelector('.sel')?.scrollIntoView({ block: 'center' });
+  }
+  /** Shows the font and size at the cursor in the boxes (not while one is being typed in). */
+  function refreshFontBoxes(force) {
+    const boxes = document.querySelectorAll('#md-ribbon [data-fontbox]');
+    if (!boxes.length) return;
+    const fs = fontState();
+    for (const b of boxes) {
+      if (!force && document.activeElement === b) continue;
+      const B = BOX[b.dataset.fontbox];
+      b.value = fs[B.state] || '';
+      if (B.family) b.style.fontFamily = b.value ? '"' + b.value + '", system-ui' : '';
+    }
+    const hl = document.querySelector('#md-ribbon [data-cmd="format.highlight"]');
+    if (hl) hl.style.setProperty('--swatch', MD.pref('highlightColor') || 'yellow');
+    const fc = document.querySelector('#md-ribbon [data-cmd="format.color"]');
+    if (fc) fc.style.setProperty('--swatch', MD.pref('fontColor') || '#C00000');
+  }
+  MD.refreshFontBoxes = refreshFontBoxes;
+
   function menuButton(label, icon, run) {
     const b = h('button.md-menu-item', h('span.md-menu-check'), MD.icon(icon, 18), h('span.md-menu-label', label), h('span.md-menu-key'));
     b.addEventListener('click', () => { MD.closeMenu(); run(); });
@@ -58,7 +248,9 @@
   const TABS = [
     { id: 'home', label: 'Home', groups: [
       { label: 'Clipboard', items: [L('edit.paste'), { col: [s('edit.cut'), s('edit.copy'), s('format.clear', { label: 'Clear formatting' })] }] },
-      { label: 'Font', items: [{ rows: [[i('format.bold'), i('format.italic'), i('format.underline'), i('format.strike'), i('format.code')], [i('format.highlight'), i('format.sub'), i('format.sup'), i('format.clear'), i('insert.link')]] }] },
+      { label: 'Font', items: [{ rows: [
+        [{ widget: 'fontFamily' }, { widget: 'fontSize' }, i('format.grow'), i('format.shrink')],
+        [i('format.bold'), i('format.italic'), i('format.underline'), i('format.strike'), i('format.code'), i('format.sub'), i('format.sup'), i('format.highlight', { menu: 'highlight' }), i('format.color', { menu: 'fontColor' }), i('format.clear')]] }] },
       { label: 'Paragraph', items: [{ rows: [[i('format.bullets'), i('format.numbering'), i('format.checklist'), i('format.outdent'), i('format.indent')], [i('format.quote'), i('insert.hr'), i('insert.callout', { menu: 'callout' }), i('insert.code', { menu: 'code' })]] }] },
       { label: 'Styles', items: [{ gallery: 'styles' }] },
       { label: 'Editing', items: [{ col: [s('edit.find'), s('edit.replace'), s('edit.selectAll')] }] },
@@ -73,6 +265,7 @@
     ] },
     { id: 'design', label: 'Design', groups: [
       { label: 'Document themes', items: [{ gallery: 'themes' }] },
+      { label: 'Document fonts', items: [{ widget: 'docFonts' }] },
       { label: 'Page setup', items: [{ col: [s('design.paper', { menu: 'paper', dropOnly: true, label: 'Size' }), s('design.orientation', { menu: 'orientation', dropOnly: true }), s('design.margins', { menu: 'margins', dropOnly: true })] }] },
       { label: 'Page background', items: [L('design.watermark', { menu: 'watermark', dropOnly: true })] },
       { label: 'Formatting', items: [{ col: [s('design.numbered'), s('design.justify')] }] },
@@ -167,7 +360,9 @@
       for (const it of grp.items) {
         if (it.gallery) content.append(gallery(it.gallery));
         else if (it.col) content.append(h('div.md-rb-col', it.col.map(button)));
-        else if (it.rows) content.append(h('div.md-rb-rows', it.rows.map((r) => h('div.md-rb-row', r.map(button)))));
+        else if (it.rows) content.append(h('div.md-rb-rows', it.rows.map((r) => h('div.md-rb-row', r.map((x) => (x.widget ? fontBox(x.widget) : button(x)))))));
+        else if (it.widget === 'docFonts') content.append(h('div.md-docfonts',
+          ...[['Body', 'docMain'], ['Code', 'docMono'], ['Size', 'docSize']].map(([l, k]) => h('label.md-docfonts-line', h('span', l), fontBox(k)))));
         else content.append(button(it));
       }
       body.append(h('div.md-rb-group', content, h('div.md-rb-glabel', grp.label)));
@@ -236,6 +431,7 @@
       if (c.checked) el.classList.toggle('on', !!c.checked(args));
       if (c.enabled) el.disabled = !c.enabled();
     }
+    refreshFontBoxes();
   }
   MD.refreshRibbon = () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 60); };
 

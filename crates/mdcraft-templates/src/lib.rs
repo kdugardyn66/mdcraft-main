@@ -149,7 +149,12 @@ impl Vars {
 
 /// The template's Markdown with its placeholders filled in.
 pub fn instantiate(t: &Template, vars: &Vars) -> String {
-    let mut out = t.source.to_string();
+    fill(t.source, vars)
+}
+
+/// Fills the placeholders in any template text (custom templates use the same ones).
+pub fn fill(text: &str, vars: &Vars) -> String {
+    let mut out = text.to_string();
     for (k, v) in vars.pairs() {
         out = out.replace(&format!("{{{{{k}}}}}"), &v);
     }

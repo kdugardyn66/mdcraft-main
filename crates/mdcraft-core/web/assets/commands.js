@@ -147,7 +147,50 @@
   C('format.underline', { ...ed, label: 'Underline', icon: 'underline', key: 'Mod+U', run: () => E.toggleWrap('<u>', '</u>'), checked: () => fmt.has('underline') });
   C('format.strike', { ...ed, label: 'Strikethrough', icon: 'strike', key: 'Mod+Shift+X', run: () => E.toggleWrap('~~'), checked: () => fmt.has('strike') });
   C('format.code', { ...ed, label: 'Inline code', icon: 'code', key: 'Mod+E', keywords: 'monospace', run: () => E.toggleWrap('`', '`', 'code'), checked: () => fmt.has('code') });
-  C('format.highlight', { ...ed, label: 'Highlight', icon: 'highlight', key: 'Mod+Shift+H', keywords: 'mark marker yellow', run: () => E.toggleWrap('==', '==', 'highlighted'), checked: () => fmt.has('highlight') });
+  // Highlight, font colour, font and size: <span style="…"> / <div style="…"> (see E.applyStyle).
+  // args.color from the colour picker ('none' removes); without args the button applies the
+  // last colour picked, or removes the highlight the cursor is in.
+  const styleNow = () => { try { return E.styleAt(); } catch (e) { return new Map(); } };
+  MD.cssFontName = (f) => (/^[A-Za-z][A-Za-z -]*$/.test(f) ? f : "'" + f.replace(/'/g, '') + "'");
+  MD.plainFontName = (v) => String(v || '').split(',')[0].trim().replace(/^["']|["']$/g, '');
+  const colorCmd = (prop, pref, fallback) => (a) => {
+    if (a && a.color !== undefined) {
+      if (a.color !== 'none') MD.setPref(pref, a.color);
+      E.applyStyle({ [prop]: a.color === 'none' ? null : a.color });
+      return;
+    }
+    // ==marked== text (checked now, not from the ribbon's state, which follows the cursor a moment later)
+    if (prop === 'background-color' && E.activeFormats().has('highlight')) { E.toggleWrap('==', '=='); return; }
+    if (styleNow().has(prop)) E.applyStyle({ [prop]: null });
+    else E.applyStyle({ [prop]: MD.pref(pref) || fallback });
+  };
+  C('format.highlight', { ...ed, label: 'Highlight', icon: 'highlight', key: 'Mod+Shift+H', keywords: 'mark marker yellow background colour color', run: colorCmd('background-color', 'highlightColor', 'yellow'), checked: () => fmt.has('highlight') || styleNow().has('background-color') });
+  C('format.color', { ...ed, label: 'Font color', icon: 'font-color', key: 'Mod+Shift+C', keywords: 'text colour color red', run: colorCmd('color', 'fontColor', '#c00000') });
+  C('format.fontFamily', { ...ed, label: 'Font', icon: 'font', keywords: 'typeface family arial', run: (a) => {
+    const f = a && a.family != null ? String(a.family).trim() : '';
+    if (f) MD.rememberFont(f);
+    E.applyStyle({ 'font-family': f ? MD.cssFontName(f) : null }, { block: !!(a && a.block) });
+  } });
+  C('format.fontSize', { ...ed, label: 'Font size', icon: 'font-size', keywords: 'points pt bigger smaller', run: (a) => {
+    let v = a && a.size != null ? String(a.size).trim() : '';
+    if (/^\d+(\.\d+)?$/.test(v)) v += 'pt';
+    if (v && !/^\d+(\.\d+)?(pt|px|em|rem|%)$/.test(v)) { MD.toast('Font size: a number such as 12 or 12pt'); return; }
+    E.applyStyle({ 'font-size': v || null }, { block: !!(a && a.block) });
+  } });
+  const SIZES = [8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72];
+  MD.fontSizes = SIZES;
+  const stepSize = (dir) => {
+    const cur = parseFloat(styleNow().get('font-size')) || parseFloat(E.frontMatter().fontsize) || 12;
+    const next = dir > 0 ? SIZES.find((s) => s > cur) || 96 : [...SIZES].reverse().find((s) => s < cur) || 6;
+    MD.run('format.fontSize', { size: next + 'pt' });
+  };
+  C('format.grow', { ...ed, label: 'Increase font size', icon: 'font-grow', run: () => stepSize(1) });
+  C('format.shrink', { ...ed, label: 'Decrease font size', icon: 'font-shrink', run: () => stepSize(-1) });
+  /** Recently used fonts (first in the font list). */
+  MD.rememberFont = (f) => { const r = (MD.pref('recentFonts') || []).filter((x) => x !== f); r.unshift(f); MD.setPref('recentFonts', r.slice(0, 8)); };
+  /** The installed fonts ({family, mono, sans, serif, bundled}), from the server, once. */
+  let fontsPromise = null;
+  MD.fonts = () => (fontsPromise = fontsPromise || MD.api('/api/fonts').then((r) => r.fonts || []).catch(() => { fontsPromise = null; return []; }));
   C('format.sub', { ...ed, label: 'Subscript', icon: 'subscript', key: 'Mod+=', run: () => E.toggleWrap('~', '~', '2') });
   C('format.sup', { ...ed, label: 'Superscript', icon: 'superscript', key: 'Mod+Shift+=', run: () => E.toggleWrap('^', '^', '2') });
   C('format.clear', { ...ed, label: 'Clear formatting', icon: 'clear', key: 'Mod+Space', run: () => E.clearFormatting() });
@@ -277,6 +320,19 @@
     E.setFrontMatter({ theme: id === 'office' && !MD.isDeck() && !E.frontMatter().theme ? 'office' : id });
     MD.toast('Theme: ' + (MD.themes.find((x) => x.id === id) || {}).name);
   }, checked: (a) => a && MD.currentTheme() === a.id });
+  // the document's fonts: mainfont, monofont and fontsize in the front matter (pandoc's names)
+  const docFont = (key, label) => (a) => {
+    if (!(a && a.value !== undefined)) { MD.selectTab('design'); setTimeout(() => document.querySelector('[data-fontbox="' + { mainfont: 'docMain', monofont: 'docMono', fontsize: 'docSize' }[key] + '"]')?.focus(), 50); return; }
+    let v = String(a.value || '').trim();
+    if (key === 'fontsize' && /^\d+(\.\d+)?$/.test(v)) v += 'pt';
+    if (key === 'fontsize' && v && !/^\d+(\.\d+)?(pt|px)$/.test(v)) { MD.toast('Font size: a number such as 12 or 12pt'); return; }
+    if (key === 'mainfont' && v) MD.rememberFont(v);
+    E.setFrontMatter({ [key]: v || null });
+    MD.toast(label + ': ' + (v || 'from the theme'));
+  };
+  C('design.mainfont', { ...ed, label: 'Document font', icon: 'font', keywords: 'mainfont body font typeface whole document', run: docFont('mainfont', 'Document font') });
+  C('design.monofont', { ...ed, label: 'Document code font', icon: 'code', keywords: 'monofont monospace code font fixed width', run: docFont('monofont', 'Code font') });
+  C('design.fontsize', { ...ed, label: 'Document font size', icon: 'font-size', keywords: 'fontsize text size points', run: docFont('fontsize', 'Font size') });
   C('design.paper', { ...ed, label: 'Paper size', icon: 'page-size', keywords: 'a4 letter page size print', run: (a) => E.setFrontMatter({ paper: a && a.id !== 'a4' ? a.id : null }) });
   C('design.orientation', { ...ed, label: 'Orientation', icon: 'orientation', keywords: 'portrait landscape print', run: (a) => E.setFrontMatter({ orientation: a && a.id === 'landscape' ? 'landscape' : null }) });
   C('design.margins', { ...ed, label: 'Margins', icon: 'margins', keywords: 'print page', run: (a) => E.setFrontMatter({ margins: a && a.id !== 'normal' ? a.id : null }) });

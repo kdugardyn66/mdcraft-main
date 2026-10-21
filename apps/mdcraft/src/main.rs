@@ -17,6 +17,9 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+#[cfg(target_os = "macos")]
+mod mac_save;
+
 use mdcraft_core::{util, App, Mode};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -244,6 +247,10 @@ fn run(args: &[String]) -> Result<(), String> {
                         let picked = d.pick_file();
                         reply(picked.map(|p| json!(p.to_string_lossy())).unwrap_or(Value::Null), None);
                     }
+                    "save-dialog" if msg["types"].is_array() => {
+                        let (picked, kind) = save_with_types(&window, &msg);
+                        reply(picked.map(|p| json!({"path": p.to_string_lossy(), "type": kind})).unwrap_or(Value::Null), None);
+                    }
                     "save-dialog" => {
                         let mut d = rfd::FileDialog::new().set_title("Save As").set_parent(&window);
                         d = add_filters(d, &msg["filters"]);
@@ -339,6 +346,55 @@ fn deliver_opened(webview: &WebView, paths: &[PathBuf]) {
     let list: Vec<String> = paths.iter().map(|p| p.to_string_lossy().to_string()).collect();
     let js = format!("window.__mdNative && window.__mdNative.opened({})", json!(list));
     let _ = webview.evaluate_script(&js);
+}
+
+/// Save As with a File type choice. `msg`: {title, name, dir, types: [{label, ext, dir}], type}.
+/// Returns the path and the index of the type it was saved as.
+fn save_with_types(window: &Window, msg: &Value) -> (Option<PathBuf>, usize) {
+    let types: Vec<(String, String, Option<PathBuf>)> = msg["types"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|t| Some((t["label"].as_str()?.to_string(), t["ext"].as_str()?.trim_start_matches('.').to_string(), t["dir"].as_str().map(PathBuf::from)))).collect())
+        .unwrap_or_default();
+    if types.is_empty() {
+        return (None, 0);
+    }
+    let selected = (msg["type"].as_u64().unwrap_or(0) as usize).min(types.len() - 1);
+    let title = msg["title"].as_str().unwrap_or("Save As");
+    let name = msg["name"].as_str().unwrap_or("Document.md");
+    let dir = msg["dir"].as_str().map(PathBuf::from).filter(|d| d.is_dir());
+
+    #[cfg(target_os = "macos")]
+    {
+        let _ = window;
+        let list: Vec<mac_save::FileType> = types.iter().map(|(label, ext, dir)| mac_save::FileType { label: label.clone(), ext: ext.clone(), dir: dir.clone() }).collect();
+        match mac_save::save_panel(title, name, dir.as_deref(), &list, selected) {
+            Some((p, i)) => (Some(p), i),
+            None => (None, selected),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // GTK lists the types as filters; the extension typed in the name decides the type
+        let (_, ext, _) = &types[selected];
+        let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
+        let mut d = rfd::FileDialog::new().set_title(title).set_parent(window).set_file_name(format!("{stem}.{ext}"));
+        if let Some(dir) = dir {
+            d = d.set_directory(dir);
+        }
+        for (label, ext, _) in std::iter::once(&types[selected]).chain(types.iter().enumerate().filter(|(i, _)| *i != selected).map(|(_, t)| t)) {
+            d = d.add_filter(label, &[ext]);
+        }
+        let Some(mut p) = d.save_file() else { return (None, selected) };
+        let found = p.extension().and_then(|e| e.to_str()).and_then(|e| types.iter().position(|(_, x, _)| x.eq_ignore_ascii_case(e)));
+        let kind = match found {
+            Some(i) => i,
+            None => {
+                p.set_extension(ext);
+                selected
+            }
+        };
+        (Some(p), kind)
+    }
 }
 
 fn add_filters(mut d: rfd::FileDialog, filters: &Value) -> rfd::FileDialog {

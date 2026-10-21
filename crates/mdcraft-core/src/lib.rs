@@ -23,12 +23,14 @@ pub mod app;
 pub mod config;
 pub mod csv;
 pub mod diagrams;
+pub mod fonts;
 pub mod http;
 mod http_ext;
 pub mod jobs;
 pub mod markdown;
 pub mod media;
 pub mod prefs;
+pub mod user_templates;
 pub mod util;
 pub mod web;
 
@@ -52,6 +54,10 @@ pub fn start_on(mode: Mode, port: Option<u16>) -> Result<Arc<App>, String> {
     }
     let app = App::new(mode, settings);
     http::start(&app)?;
+    // the font boxes need the installed fonts: find them while the window opens
+    std::thread::spawn(|| {
+        let _ = fonts::families();
+    });
     app.start_worker();
     Ok(app)
 }

@@ -24,6 +24,40 @@
       <key>LSHandlerRank</key><string>Alternate</string>
       <key>LSItemContentTypes</key><array><string>net.daringfireball.markdown</string></array>
     </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>MdCraft document template</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Owner</string>
+      <key>CFBundleTypeIconFile</key><string>mdcraft</string>
+      <key>LSItemContentTypes</key><array><string>io.github.kdugardyn.mdcraft.document-template</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>MdCraft slide template</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Owner</string>
+      <key>CFBundleTypeIconFile</key><string>mdcraft</string>
+      <key>LSItemContentTypes</key><array><string>io.github.kdugardyn.mdcraft.slide-template</string></array>
+    </dict>
+  </array>
+  <!-- MdCraft's own template files: Markdown text, .mdd (document) and .mds (slides). -->
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key><string>io.github.kdugardyn.mdcraft.document-template</string>
+      <key>UTTypeDescription</key><string>MdCraft document template</string>
+      <key>UTTypeConformsTo</key><array><string>net.daringfireball.markdown</string><string>public.plain-text</string></array>
+      <key>UTTypeIconFile</key><string>mdcraft</string>
+      <key>UTTypeTagSpecification</key>
+      <dict><key>public.filename-extension</key><array><string>mdd</string></array></dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key><string>io.github.kdugardyn.mdcraft.slide-template</string>
+      <key>UTTypeDescription</key><string>MdCraft slide template</string>
+      <key>UTTypeConformsTo</key><array><string>net.daringfireball.markdown</string><string>public.plain-text</string></array>
+      <key>UTTypeIconFile</key><string>mdcraft</string>
+      <key>UTTypeTagSpecification</key>
+      <dict><key>public.filename-extension</key><array><string>mds</string></array></dict>
+    </dict>
   </array>
   <!-- Older macOS versions don't know the Markdown type; without this, Finder can't match
        .md files to the document type above (LSItemContentTypes wins over extensions). -->

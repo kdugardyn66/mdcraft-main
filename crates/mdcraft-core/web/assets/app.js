@@ -81,6 +81,48 @@
     return false;
   };
 
+  /**
+   * The template text with the default fonts from Options added to its front matter
+   * (mainfont, monofont, fontsize; keys the template sets itself are kept). Presentations get
+   * the fonts but not the size: slides size their text themselves.
+   */
+  MD.withDefaultFonts = (text, kind) => {
+    const want = [['mainfont', MD.pref('docMainfont')], ['monofont', MD.pref('docMonofont')]];
+    if (kind !== 'presentation') want.push(['fontsize', MD.pref('docFontsize')]);
+    const add = want.filter(([, v]) => v);
+    if (!add.length) return text;
+    const m = /^---\r?\n([\s\S]*?)\r?\n(---|\.\.\.)\r?\n?/.exec(text);
+    const has = (k) => m && new RegExp('^' + k + '\\s*:', 'm').test(m[1]);
+    const lines = add.filter(([k]) => !has(k)).map(([k, v]) => k + ': ' + v);
+    if (!lines.length) return text;
+    if (m) return text.slice(0, m.index) + '---\n' + m[1] + '\n' + lines.join('\n') + '\n' + m[2] + '\n' + text.slice(m.index + m[0].length);
+    return '---\n' + lines.join('\n') + '\n---\n\n' + text;
+  };
+
+  /** A new document from one of the user's templates (.mdd / .mds). */
+  MD.newFromUserTemplate = async (path) => {
+    if (!(await MD.confirmDiscard())) return;
+    let t;
+    try { t = await MD.api('/api/user-template?path=' + encodeURIComponent(path)); } catch (e) { MD.toast(e.message); return; }
+    const kind = t.kind === 'presentation' ? 'presentation' : 'document';
+    const n = ++untitledN[kind];
+    const name = (kind === 'presentation' ? 'Presentation ' : 'Document ') + n + '.md';
+    setDoc({ path: MD.join(MD.app.documents, name), name, saved: false, key: newKey(), template: null, newTemplate: false }, t.text);
+    if (kind === 'presentation' && MD.currentTab() === 'home') MD.selectTab('slides');
+  };
+  /** Starts a new custom template (from the blank document or blank deck); saving it puts it in
+   *  the templates folder (Save As, File type: Markdown template). */
+  MD.newTemplate = async (kind) => {
+    await MD.newFromTemplate(kind === 'presentation' ? 'blank-deck' : 'blank');
+    if (!doc.open) return;
+    const ext = kind === 'presentation' ? 'mds' : 'mdd';
+    doc.newTemplate = true;
+    doc.name = (kind === 'presentation' ? 'New slide template.' : 'New document template.') + ext;
+    doc.path = MD.join(MD.app.templatesDir, doc.name);
+    updateTitle(); updateStatus();
+    MD.toast('A new template: write it, then save it (⌘S) to add it to My templates.', 6000);
+  };
+
   MD.newFromTemplate = async (id) => {
     if (!(await MD.confirmDiscard())) return;
     let t;
@@ -89,7 +131,7 @@
     const base = kind === 'presentation' ? 'Presentation' : 'Document';
     const n = ++untitledN[kind];
     const name = base + ' ' + n + '.md';
-    setDoc({ path: MD.join(MD.app.documents, name), name, saved: false, key: newKey(), template: id }, t.text);
+    setDoc({ path: MD.join(MD.app.documents, name), name, saved: false, key: newKey(), template: id, newTemplate: false }, MD.withDefaultFonts(t.text, kind));
     if (kind === 'presentation' && MD.currentTab() === 'home') MD.selectTab('slides');
   };
 
@@ -203,7 +245,7 @@
   MD.openDialog = async (forceNative) => {
     if (MD.isNative()) {
       try {
-        const p = await MD.native('open-dialog', { title: 'Open', filters: [['Markdown', ['md', 'markdown', 'mdown', 'mkd', 'txt']], ['All files', ['*']]], dir: doc.saved ? MD.dirname(doc.path) : MD.app.documents });
+        const p = await MD.native('open-dialog', { title: 'Open', filters: [['Markdown', ['md', 'markdown', 'mdown', 'mkd', 'txt']], ['Markdown templates', ['mdd', 'mds']], ['All files', ['*']]], dir: doc.saved ? MD.dirname(doc.path) : MD.app.documents });
         if (p) MD.openPath(p);
         return;
       } catch (e) { if (forceNative) { MD.toast(e.message); return; } }
@@ -212,7 +254,7 @@
   };
 
   MD.suggestName = () => {
-    if (doc.saved) return doc.name;
+    if (doc.saved || doc.newTemplate) return doc.name;
     const fm = E.frontMatter();
     let t = fm.title || (/^#\s+(.+)$/m.exec(E.get().replace(/^---[\s\S]*?\n---\n/, '')) || [])[1] || doc.name.replace(/\.md$/, '');
     t = t.replace(/[\\/:*?"<>|#]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Document';
@@ -224,18 +266,88 @@
     if (!doc.saved) return await MD.saveAs();
     return await MD.saveTo(doc.path, true);
   };
-  MD.saveAs = async () => {
+  // ------------------------------------------------------------------ Save As
+  // The system's Save window with a File type: "Markdown file (.md)" or "Markdown template".
+  // A template is .mdd (document) or .mds (slides), whichever the document is, and goes to the
+  // templates folder (File › New › My templates).
+  MD.isTemplatePath = (p) => /\.(mdd|mds)$/i.test(p || '');
+  MD.saveTypes = () => {
+    const tExt = MD.isDeck() ? 'mds' : 'mdd';
+    return [
+      { label: 'Markdown file (.md)', ext: 'md', dir: null },
+      { label: (tExt === 'mds' ? 'Markdown slide template' : 'Markdown document template') + ' (.' + tExt + ')', ext: tExt, dir: MD.app.templatesDir },
+    ];
+  };
+  /** opts.template: preselect the template type (default: when the document is one). */
+  MD.saveAs = async (opts) => {
     if (!doc.open) return false;
+    const asTemplate = opts && opts.template !== undefined ? !!opts.template : (MD.isTemplatePath(doc.path) || !!doc.newTemplate);
+    const types = MD.saveTypes();
+    const type = asTemplate ? 1 : 0;
+    const name = MD.suggestName().replace(/\.[\w]+$/, '') + '.' + types[type].ext;
+    const dir = asTemplate ? MD.app.templatesDir : (doc.saved && !MD.isTemplatePath(doc.path) ? MD.dirname(doc.path) : MD.app.documents);
+    // Templates always go to the templates folder (File › New › My templates lists that folder):
+    // whatever folder was browsed to, only the file name is used.
+    const done = async (p, askedOverwrite) => {
+      let target = p;
+      if (MD.isTemplatePath(p)) {
+        target = MD.join(MD.app.templatesDir, MD.basename(p));
+        if (target !== doc.path && (target !== p || !askedOverwrite)) {
+          let exists = false;
+          try { exists = (await MD.api('/api/file/stat?path=' + encodeURIComponent(target))).exists; } catch (e) { /* ignore */ }
+          if (exists && !(await MD.confirm('Replace template', 'You already have a template called “' + MD.basename(target).replace(/\.(mdd|mds)$/i, '') + '”. Replace it?', 'Replace'))) return false;
+        }
+      }
+      const ok = await MD.saveTo(target);
+      if (ok && MD.isTemplatePath(target)) {
+        doc.newTemplate = false;
+        MD.toast(target !== p ? 'Templates are kept in My templates: saved there as “' + MD.basename(target) + '”.' : 'Saved as a template. Find it under File › New › My templates.', 6000);
+      }
+      return ok;
+    };
     if (MD.isNative()) {
       try {
-        const p = await MD.native('save-dialog', { name: MD.suggestName(), dir: doc.saved ? MD.dirname(doc.path) : MD.app.documents, filters: [['Markdown', ['md']]] });
-        if (!p) return false;
-        return await MD.saveTo(/\.[\w]+$/.test(MD.basename(p)) ? p : p + '.md');
-      } catch (e) { /* fall back to the in-app page */ }
+        const r = await MD.native('save-dialog', { title: 'Save As', name, dir, types, type });
+        if (!r) return false;
+        if (typeof r === 'string') return await done(/\.[\w]+$/.test(MD.basename(r)) ? r : r + '.' + types[type].ext, true); // an older shell
+        return await done(r.path, true);
+      } catch (e) { /* no native dialog: the in-app one */ }
     }
-    MD.openBackstage('saveas');
-    return false;
+    return await saveAsDialog(types, type, name, dir, done);
   };
+  /** Save As in a browser tab (mdcraft-cli serve): a folder browser with the same File type choice. */
+  function saveAsDialog(types, type, name, dir, done) {
+    return new Promise((resolve) => {
+      let close = () => {};
+      let cur = type;
+      const typeSel = MD.select(types.map((t, i) => [i, t.label]), cur);
+      const holder = h('div.md-saveas-browser');
+      const browser = (d) => {
+        if (types[cur].dir) {
+          // a template: always the templates folder, so only a name to type
+          const input = h('input.md-input.md-fb-filename', { value: name.replace(/\.[\w]+$/, '') + '.' + types[cur].ext, spellcheck: false });
+          const save = async () => { let n = input.value.trim(); if (!n) { input.focus(); return; } n = n.replace(/\.[\w]+$/, '') + '.' + types[cur].ext; if (await done(MD.join(types[cur].dir, n), false)) { close(true); resolve(true); } };
+          input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } });
+          holder.replaceChildren(h('p.md-hint', 'Templates are always saved in My templates (' + types[cur].dir + ').'),
+            h('div.md-fb-foot', MD.field('File name', input), h('button.md-btn.md-primary', { onclick: save }, 'Save')));
+          setTimeout(() => input.focus(), 0);
+          return;
+        }
+        const fb = MD.folderBrowser({ mode: 'save', dir: d, name: name.replace(/\.[\w]+$/, '') + '.' + types[cur].ext, ext: '.' + types[cur].ext, filter: 'md',
+          onPick: async (p) => { const fixed = p.replace(/\.[\w]+$/, '') + '.' + types[cur].ext; if (await done(fixed, false)) { close(true); resolve(true); } } });
+        holder.replaceChildren(fb);
+      };
+      typeSel.addEventListener('change', () => {
+        const nameInput = holder.querySelector('.md-fb-filename');
+        if (nameInput) name = nameInput.value;
+        cur = +typeSel.value;
+        browser(types[cur].dir || dir);
+      });
+      browser(dir);
+      MD.dialog({ title: 'Save As', width: 820, body: h('div', MD.field('File type', typeSel), holder), buttons: null, onOpen: (d, c) => { close = c; } })
+        .then(() => resolve(false));
+    });
+  }
   MD.saveTo = async (path, quiet) => {
     // Don't silently overwrite what another application just wrote.
     if (doc.saved && path === doc.path) {
@@ -254,14 +366,6 @@
       if (!quiet) MD.toast('Saved ' + r.name);
       return true;
     } catch (e) { MD.alert('Cannot save', e.message); return false; } finally { saving--; }
-  };
-  MD.saveCopy = async () => {
-    const name = MD.suggestName().replace(/\.md$/, '') + ' (copy).md';
-    const done = async (p) => { try { await MD.api('/api/file/save', { path: p, text: E.get() }); MD.toast('Saved a copy: ' + MD.basename(p)); return true; } catch (e) { MD.toast(e.message); return false; } };
-    if (MD.isNative()) { const p = await MD.native('save-dialog', { name, dir: doc.saved ? MD.dirname(doc.path) : MD.app.documents }).catch(() => null); if (p) done(p); return; }
-    const fb = MD.folderBrowser({ mode: 'save', name, dir: doc.saved ? MD.dirname(doc.path) : MD.app.documents, onPick: async (p) => { if (await done(p)) dlg.close(); } });
-    const dlg = { close: () => {} };
-    MD.dialog({ title: 'Save a copy', width: 760, body: fb, buttons: null, onOpen: (d, close) => { dlg.close = close; } });
   };
   MD.closeDocument = async () => {
     if (!(await MD.confirmDiscard())) return;
@@ -324,6 +428,7 @@
   };
 
   // ================================================================== title and status bar
+  MD.updateTitle = () => updateTitle();
   function updateTitle() {
     const name = doc.open ? doc.name : 'MdCraft';
     const t = doc.open ? (doc.dirty ? '• ' : '') + name + ' — MdCraft' : 'MdCraft';
@@ -604,10 +709,6 @@
     MD.toast('In the print dialog, choose “Save as PDF” or “Print to File”.', 5000);
     setTimeout(() => ML.print(), 400);
   };
-  MD.exportText = async () => {
-    const txt = content.innerText.replace(/\n{3,}/g, '\n\n');
-    await saveText(MD.suggestName().replace(/\.md$/, '') + '.txt', txt, 'txt');
-  };
   MD.copyRich = async () => {
     const clone = await ML.withTheme('light', async () => { await ML.settled(30000); return ML.cloneRendered(); });
     const holder = h('div.markdown-body', { contenteditable: 'true', style: { position: 'fixed', left: '-10000px', top: '0', width: '800px', background: '#fff', color: '#000' } });
@@ -686,7 +787,7 @@
     /** Files dropped on the window or passed on the command line. */
     async dropped(paths) {
       const pics = paths.filter((p) => /\.(png|jpe?g|gif|svg|webp|avif|bmp|heic|heif|tiff?|mp4|webm|mkv|mov|avi|m4v|mp3|wav|ogg|m4a|flac)$/i.test(p));
-      const mds = paths.filter((p) => /\.(md|markdown|mdown|mkd|txt)$/i.test(p));
+      const mds = paths.filter((p) => /\.(md|markdown|mdown|mkd|txt|mdd|mds)$/i.test(p));
       const csvs = paths.filter((p) => /\.(csv|tsv)$/i.test(p));
       if (mds.length && !doc.open) { MD.openPath(mds[0]); return; }
       if (mds.length && !pics.length && !csvs.length) { MD.openPath(mds[0]); return; }
@@ -702,7 +803,7 @@
      */
     opened(paths) {
       openQueue = openQueue.then(async () => {
-        const isMd = (p) => /\.(md|markdown|mdown|mkd|txt)$/i.test(p);
+        const isMd = (p) => /\.(md|markdown|mdown|mkd|txt|mdd|mds)$/i.test(p);
         const mds = [...new Set(paths.filter(isMd))];
         const others = paths.filter((p) => !isMd(p));
         for (const p of mds) {

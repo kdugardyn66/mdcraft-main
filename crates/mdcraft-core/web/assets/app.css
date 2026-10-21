@@ -461,3 +461,54 @@ body.md-presenting #ml-toast { z-index: 95; }
 .retired { position: fixed; inset: 0; background: color-mix(in srgb, var(--ui-bg) 88%, transparent); display: flex; align-items: center; justify-content: center; z-index: 95; font-size: 15px; }
 .retired div { background: var(--ui-panel); border: 1px solid var(--ui-border); padding: 18px 22px; border-radius: 10px; box-shadow: var(--ui-shadow); text-align: center; }
 #md-editor .cm-scroller { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+
+/* ---------------------------------------------------------------- Font group (0.2.1) */
+svg.md-i .cbar { stroke: var(--swatch, var(--icon-accent)); }
+.md-font-box { display: flex; align-items: stretch; height: 26px; border: 1px solid var(--ui-border-strong); border-radius: 4px; background: var(--ui-surface); margin: 0 2px 0 0; }
+.md-font-box:focus-within { border-color: var(--icon-accent); }
+.md-font-box-family { width: 158px; }
+.md-font-box-size { width: 54px; }
+.md-font-input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ui-text); font: 12.5px system-ui, sans-serif; padding: 0 6px; outline: none; }
+.md-font-box-family .md-font-input { font-size: 13px; }
+.md-font-arrow { width: 16px; border-radius: 0 3px 3px 0; }
+.md-font-arrow:hover { background: var(--ui-hover); }
+.md-rb-row:has(.md-font-box) { background: transparent; border-color: transparent; padding: 1px 0; align-items: center; }
+.md-font-menu { max-height: min(460px, 70vh); overflow-y: auto; width: 260px; }
+.md-size-menu { width: 110px; }
+.md-font-item { display: flex; align-items: baseline; gap: 8px; }
+.md-font-item .md-font-sample { font-size: 15px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.md-font-item small { color: var(--ui-text-faint); font-size: 11px; white-space: nowrap; }
+.md-font-item.sel { background: var(--ui-checked); }
+.md-colors-menu { width: 250px; padding: 4px 8px 6px; }
+.md-colors-label { font-size: 11.5px; color: var(--ui-text-dim); margin: 8px 0 4px; }
+.md-colors-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; }
+.md-colors-theme { row-gap: 0; }
+.md-colors-theme .md-swatch:nth-child(-n+10) { margin-bottom: 4px; }
+.md-swatch { width: 19px; height: 19px; border: 1px solid rgba(0, 0, 0, .18); border-radius: 2px; padding: 0; cursor: pointer; }
+.md-swatch:hover { outline: 2px solid var(--icon-accent); outline-offset: 1px; position: relative; z-index: 1; }
+.md-swatch-none { display: inline-block; background: linear-gradient(to top right, transparent 46%, #d33 46%, #d33 54%, transparent 54%), var(--ui-surface); }
+.md-colors-none { padding-left: 2px; }
+.md-colors-empty { grid-column: 1 / -1; font-size: 11.5px; color: var(--ui-text-faint); }
+.md-colors-hexrow { display: flex; gap: 6px; margin: 8px 0 2px; }
+.md-colors-hex { flex: 1; height: 26px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+.md-colors-hex.md-bad { border-color: #d33; }
+.md-colors-add { height: 26px; padding: 0 10px; }
+.md-docfonts { display: flex; flex-direction: column; gap: 2px; padding-top: 1px; }
+.md-docfonts-line { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ui-text-dim); }
+.md-docfonts-line > span { width: 30px; text-align: right; }
+.md-docfonts .md-font-box { height: 22px; }
+.md-docfonts .md-font-box-family { width: 170px; }
+.md-docfonts .md-font-box-size { width: 72px; }
+.md-opt-actions { margin: 6px 0 2px; }
+
+/* ---------------------------------------------------------------- My templates (File › New) */
+.md-mytpl-head { flex-wrap: wrap; gap: 10px; }
+.md-mytpl-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.md-mytpl-actions .md-btn { display: inline-flex; align-items: center; gap: 6px; }
+.md-mytpl-empty { margin: 4px 0 8px; max-width: 760px; }
+.md-tpl-thumbwrap { position: relative; }
+.md-tpl-acts { position: absolute; top: 6px; right: 6px; display: flex; gap: 4px; opacity: 0; transition: opacity .12s; }
+.md-tpl-mine:hover .md-tpl-acts, .md-tpl-mine:focus-within .md-tpl-acts { opacity: 1; }
+.md-tpl-act { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; background: var(--ui-surface); border: 1px solid var(--ui-border-strong); color: var(--ui-icon); box-shadow: 0 1px 3px rgba(0,0,0,.12); cursor: pointer; }
+.md-tpl-act:hover { background: var(--ui-hover); }
+.md-saveas-browser { margin-top: 10px; }

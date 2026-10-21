@@ -25,7 +25,10 @@
   };
   bs.querySelector('#md-bs-nav').addEventListener('click', (e) => {
     const b = e.target.closest('[data-page]');
-    if (b) show(b.dataset.page);
+    if (!b) return;
+    // Save As is the system's Save window, not a page
+    if (b.dataset.page === 'saveas') { MD.closeBackstage(); setTimeout(() => MD.saveAs(), 0); return; }
+    show(b.dataset.page);
   });
 
   function show(p) {
@@ -45,11 +48,11 @@
     if (!previewCache.has(id)) previewCache.set(id, MD.api('/api/template/preview?id=' + encodeURIComponent(id)).catch(() => null));
     return previewCache.get(id);
   }
-  function thumb(t) {
+  function thumb(t, preview) {
     const frame = h('div.md-thumb' + (t.kind === 'presentation' ? '.md-thumb-deck' : '.md-thumb-doc'));
     const inner = h('div.md-thumb-inner');
     frame.append(inner);
-    templatePreview(t.id).then((p) => {
+    (preview || templatePreview(t.id)).then((p) => {
       if (!p) return;
       const theme = (p.meta && p.meta.theme) || t.theme;
       const art = h('article.markdown-body.md-thumb-body.theme-' + theme + (p.slides ? '.ml-deck' : ''));
@@ -78,6 +81,68 @@
   }
   let templates = null;
   async function allTemplates() { if (!templates) templates = await MD.api('/api/templates'); return templates; }
+
+  // ------------------------------------------------------------------ my templates
+  // The user's own templates (.mdd documents, .mds slides) in the templates folder.
+  async function userTemplates() { try { return (await MD.api('/api/user-templates')).templates || []; } catch (e) { return []; } }
+  const userPreviewCache = new Map();
+  function userPreview(t) {
+    const key = t.path + '@' + t.modified;
+    if (!userPreviewCache.has(key)) userPreviewCache.set(key, MD.api('/api/user-template/preview?path=' + encodeURIComponent(t.path)).catch(() => null));
+    return userPreviewCache.get(key);
+  }
+  function userTemplateCard(t, small, redraw) {
+    const act = (icon, title, run) => {
+      const b = h('span.md-tpl-act', { role: 'button', tabIndex: 0, title }, MD.icon(icon, 16));
+      b.addEventListener('click', (e) => { e.stopPropagation(); run(); });
+      return b;
+    };
+    const card = h('button.md-tpl.md-tpl-mine' + (small ? '.md-tpl-small' : ''), { title: (t.description || t.name) + '\n' + t.path },
+      h('div.md-tpl-thumbwrap', thumb(t, userPreview(t)),
+        small ? null : h('div.md-tpl-acts',
+          act('pencil', 'Edit the template', () => MD.editUserTemplate(t)),
+          act('rename', 'Rename', () => MD.renameUserTemplate(t).then((ok) => ok && redraw && redraw())),
+          act('trash', 'Delete (move to the Trash)', () => MD.deleteUserTemplate(t).then((ok) => ok && redraw && redraw())))),
+      h('span.md-tpl-name', t.name),
+      small ? null : h('span.md-tpl-desc', (t.kind === 'presentation' ? 'Slides' : 'Document') + (t.description && t.description !== t.name ? ' · ' + t.description : '')));
+    card.addEventListener('click', () => MD.newFromUserTemplate(t.path));
+    return card;
+  }
+  MD.editUserTemplate = (t) => MD.openPath(t.path);
+  MD.renameUserTemplate = async (t) => {
+    const name = await MD.prompt('Rename template', 'Name', t.name);
+    if (!name || name === t.name) return false;
+    try {
+      const r = await MD.api('/api/user-template/rename', { path: t.path, name });
+      if (MD.doc.open && MD.doc.path === t.path) { MD.doc.path = r.path; MD.doc.name = MD.basename(r.path); MD.updateTitle && MD.updateTitle(); }
+      MD.toast('Renamed to “' + MD.basename(r.path) + '”');
+      return true;
+    } catch (e) { MD.alert('Cannot rename', e.message); return false; }
+  };
+  MD.deleteUserTemplate = async (t) => {
+    if (!(await MD.confirm('Delete template', 'Move the template “' + t.name + '” to the Trash? Documents made from it are not affected.', 'Move to Trash'))) return false;
+    try {
+      await MD.api('/api/user-template/delete', { path: t.path });
+      if (MD.doc.open && MD.doc.path === t.path) { MD.doc.saved = false; MD.doc.dirty = true; MD.updateTitle && MD.updateTitle(); }
+      MD.toast('“' + t.name + '” moved to the Trash');
+      return true;
+    } catch (e) { MD.alert('Cannot delete', e.message); return false; }
+  };
+  /** The "My templates" block: actions, then the user's templates (filtered like the rest). */
+  function myTemplatesSection(list, filterFn, redraw) {
+    const shown = list.filter(filterFn);
+    const btn = (icon, label, run, title) => h('button.md-btn', { onclick: run, title: title || '' }, MD.icon(icon, 18), label);
+    const head = h('div.md-bs-section-head.md-mytpl-head', h('h2', 'My templates'),
+      h('div.md-mytpl-actions',
+        btn('file-plus', 'New document template', () => MD.newTemplate('document')),
+        btn('present', 'New slide template', () => MD.newTemplate('presentation')),
+        MD.doc.open ? btn('save-as', 'Save this document as a template', () => { MD.closeBackstage(); MD.saveAs({ template: true }); }) : null,
+        MD.isNative() ? btn('folder-open', 'Templates folder', () => MD.native('reveal', { path: MD.app.templatesDir }), MD.app.templatesDir) : null));
+    const body = shown.length ? h('div.md-tpl-cards', shown.map((t) => userTemplateCard(t, false, redraw)))
+      : h('p.md-empty.md-mytpl-empty', list.length ? 'None of your templates match.'
+        : 'You have no templates yet. Make one with New document template or New slide template, or save any document as a template: File › Save As, File type “Markdown template”.');
+    return [head, body];
+  }
 
   // ------------------------------------------------------------------ recent list
   function recentList(list, opts) {
@@ -144,7 +209,7 @@
     }
     function row(e) {
       const r = h('div.md-fb-row' + (e.dir ? '.md-fb-dir' : ''), { tabindex: 0 },
-        MD.icon(e.dir ? (e.up ? 'arrow-left' : 'folder') : /\.(md|markdown|mdown|mkd|txt)$/i.test(e.name) ? 'file-md' : /\.(png|jpe?g|gif|svg|webp|avif|bmp|heic|tiff?)$/i.test(e.name) ? 'picture' : 'file', 18),
+        MD.icon(e.dir ? (e.up ? 'arrow-left' : 'folder') : /\.(md|markdown|mdown|mkd|txt|mdd|mds)$/i.test(e.name) ? 'file-md' : /\.(png|jpe?g|gif|svg|webp|avif|bmp|heic|tiff?)$/i.test(e.name) ? 'picture' : 'file', 18),
         h('span.md-fb-name', e.up ? 'Up one level' : e.name),
         h('span.md-fb-date', e.up ? '' : MD.fmtDate(e.mtime)),
         h('span.md-fb-size', e.dir ? '' : MD.fmtSize(e.size)));
@@ -181,6 +246,40 @@
   };
 
   // ------------------------------------------------------------------ pages
+  /**
+   * Options → Document fonts: the body font, code font and size that new documents get in
+   * their front matter (mainfont, monofont, fontsize). Empty = the theme's.
+   */
+  function docFontsSection(sec) {
+    const fontSel = (key, mono) => {
+      const cur = MD.pref(key) || '';
+      const s = MD.select([['', mono ? 'Theme code font' : 'Theme font'], ...(cur ? [[cur, cur]] : [])], cur);
+      MD.fonts().then((fonts) => {
+        const list = mono ? [...fonts.filter((f) => f.mono), ...fonts.filter((f) => !f.mono && f.sans)] : fonts;
+        const groups = mono ? [['Fixed width', list.filter((f) => f.mono)], ['Sans serif', list.filter((f) => !f.mono)]] : [['All fonts', list]];
+        s.replaceChildren(h('option', { value: '' }, mono ? 'Theme code font' : 'Theme font'));
+        for (const [label, fs] of groups) if (fs.length) s.append(h('optgroup', { label }, fs.map((f) => h('option', { value: f.family, selected: f.family === cur, style: { fontFamily: '"' + f.family + '"' } }, f.family))));
+        if (cur && !list.some((f) => f.family === cur)) s.append(h('option', { value: cur, selected: true }, cur + ' (not installed)'));
+      });
+      s.addEventListener('change', () => MD.setPref(key, s.value || null));
+      return s;
+    };
+    const size = MD.select([['', 'Theme size'], ...MD.fontSizes.map((n) => [n + 'pt', n + ' pt'])], MD.pref('docFontsize') || '');
+    size.addEventListener('change', () => MD.setPref('docFontsize', size.value || null));
+    const applyBtn = h('button.md-btn', { title: 'Write these into the front matter of the open document' }, 'Use for the open document');
+    applyBtn.addEventListener('click', () => {
+      if (!MD.doc.open) { MD.toast('No document is open'); return; }
+      E.setFrontMatter({ mainfont: MD.pref('docMainfont') || null, monofont: MD.pref('docMonofont') || null, fontsize: MD.pref('docFontsize') || null });
+      MD.toast('Fonts set in the front matter');
+    });
+    return sec('Document fonts',
+      h('p.md-hint', 'New documents get these at the top, in the front matter (mainfont, monofont, fontsize). Change them for one document on the Design tab.'),
+      MD.field('Body font (mainfont)', fontSel('docMainfont', false)),
+      MD.field('Code font (monofont)', fontSel('docMonofont', true), 'Fixed-width fonts first, then sans-serif fonts.'),
+      MD.field('Font size (fontsize)', size),
+      h('div.md-opt-actions', applyBtn));
+  }
+
   const pages = {
     async home() {
       const hr = new Date().getHours();
@@ -191,6 +290,8 @@
         h('h1.md-bs-h1', greet),
         h('div.md-bs-section-head', h('h2', 'New'), h('button.md-link', { onclick: () => show('new') }, 'More templates →')),
         h('div.md-tpl-row', featured.map((t) => templateCard(t, true))));
+      const mine = await userTemplates();
+      if (mine.length) root.append(h('div.md-bs-section-head', h('h2', 'My templates'), h('button.md-link', { onclick: () => show('new') }, 'Manage templates →')), h('div.md-tpl-row', mine.slice(0, 6).map((t) => userTemplateCard(t, true))));
       // documents left unsaved by a crashed or killed window
       let rec = [];
       try { rec = await MD.api('/api/autosave/list'); } catch (e) { /* ignore */ }
@@ -223,15 +324,21 @@
       const grid = h('div.md-tpl-grid');
       const chips = h('div.md-chips', ...[['all', 'All'], ['document', 'Documents'], ['presentation', 'Presentations']].map(([id, label]) => h('button.md-chip' + (id === 'all' ? '.on' : ''), { dataset: { f: id } }, label)));
       chips.addEventListener('click', (e) => { const b = e.target.closest('[data-f]'); if (!b) return; filter = b.dataset.f; chips.querySelectorAll('.md-chip').forEach((c) => c.classList.toggle('on', c === b)); draw(); });
+      let mine = await userTemplates();
       async function draw() {
         let l = list;
-        if (q.value.trim()) l = await MD.api('/api/templates?q=' + encodeURIComponent(q.value.trim()));
+        const query = q.value.trim().toLowerCase();
+        if (query) l = await MD.api('/api/templates?q=' + encodeURIComponent(q.value.trim()));
         l = l.filter((t) => filter === 'all' || t.kind === filter);
         const docs = l.filter((t) => t.kind === 'document'), decks = l.filter((t) => t.kind === 'presentation');
         grid.replaceChildren();
+        // the user's own templates first, apart from the standard ones
+        const mineFilter = (t) => (filter === 'all' || t.kind === filter) && (!query || (t.name + ' ' + t.description).toLowerCase().includes(query));
+        grid.append(...myTemplatesSection(mine, mineFilter, async () => { mine = await userTemplates(); draw(); }));
+        grid.append(h('div.md-bs-section-head', h('h2', 'Standard templates')));
         if (docs.length) grid.append(h('h3.md-tpl-cat', 'Documents'), h('div.md-tpl-cards', docs.map((t) => templateCard(t))));
         if (decks.length) grid.append(h('h3.md-tpl-cat', 'Presentations'), h('div.md-tpl-cards', decks.map((t) => templateCard(t))));
-        if (!l.length) grid.append(h('p.md-empty', 'No templates match “' + q.value + '”.'));
+        if (!l.length) grid.append(h('p.md-empty', 'No standard templates match “' + q.value + '”.'));
         MDIcons.fill(grid);
       }
       q.addEventListener('input', draw);
@@ -258,14 +365,6 @@
       nav.addEventListener('click', (e) => { const b = e.target.closest('[data-m]'); if (b) setMode(b.dataset.m); });
       setMode(recent.length ? 'recent' : 'browse');
       return h('div.md-bs-content', h('h1.md-bs-h1', 'Open'), h('div.md-bs-open', nav, right));
-    },
-
-    async saveas() {
-      const suggested = MD.suggestName();
-      const fb = MD.folderBrowser({ mode: 'save', dir: MD.doc.saved ? MD.dirname(MD.doc.path) : MD.app.documents, name: suggested, onPick: async (p) => { if (await MD.saveTo(p)) MD.closeBackstage(); } });
-      return h('div.md-bs-content', h('h1.md-bs-h1', 'Save As'),
-        MD.isNative() ? h('div.md-bs-toolbar', h('button.md-btn', { onclick: async () => { const p = await MD.native('save-dialog', { name: suggested, dir: MD.doc.saved ? MD.dirname(MD.doc.path) : MD.app.documents }); if (p && await MD.saveTo(p)) MD.closeBackstage(); } }, MD.icon('folder-open', 18), 'Browse…'), h('span.md-hint', 'or choose a folder below')) : null,
-        fb);
     },
 
     async info() {
@@ -321,9 +420,8 @@
         h('div.md-export',
           card('web', 'Web page (.html)', 'One self-contained file with the rendered diagrams, math and styles. Opens in any browser.', () => MD.exportHtml()),
           card('pdf', 'PDF', 'Print with “Save as PDF”. Uses the page size, margins and theme of the document.', () => MD.exportPdf()),
-          card('clipboard-rich', 'Copy as formatted text', 'Paste into Word, Outlook, Google Docs or an email with the formatting kept.', () => MD.copyRich()),
-          card('file-md', 'Markdown copy (.md)', 'Save a copy of the Markdown under another name.', () => MD.saveCopy()),
-          card('file-text', 'Plain text (.txt)', 'The text without any formatting.', () => MD.exportText())));
+          card('clipboard-rich', 'Copy as formatted text', 'Paste into Word, Outlook, Google Docs or an email with the formatting kept.', () => MD.copyRich())),
+        h('p.md-hint', 'To save the Markdown under another name, or as a template, use File › Save As.'));
     },
 
     async options() {
@@ -340,6 +438,7 @@
           sel('Appearance', 'appearance', [['system', 'Use system setting'], ['light', 'Light'], ['dark', 'Dark']]),
           sel('Start with', 'startup', [['start', 'The start page'], ['blank', 'A blank document'], ['last', 'The last document']]),
           cb('Save automatically while I type (saved documents)', 'autosave', 'Unsaved documents are always kept for recovery.')),
+        docFontsSection(sec),
         sec('Editor',
           sel('Font', 'editorFont', [['mono', 'Monospace (JetBrains Mono)'], ['sans', 'Sans serif (Source Sans 3)'], ['serif', 'Serif (Source Serif 4)']]),
           sel('Font size', 'editorFontSize', [12, 13, 14, 15, 16, 17, 18, 20, 22].map((n) => [n, n + ' px'])),

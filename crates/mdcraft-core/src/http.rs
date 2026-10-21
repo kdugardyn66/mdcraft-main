@@ -154,6 +154,7 @@ fn handle(app: &Arc<App>, req: Request) {
         ("GET", "/") | ("GET", "/index.html") => {
             let nonce = util::random_token();
             let html = embedded_text("assets/app.html").replace("{{NONCE}}", &nonce).replace("{{VERSION}}", env!("CARGO_PKG_VERSION"));
+            let html = versioned_assets(&html);
             let r = Response::bytes(200, html)
                 .header("Content-Type", "text/html; charset=utf-8")
                 .header("Cache-Control", "no-store")
@@ -257,13 +258,53 @@ fn serve_embedded(app: &Arc<App>, req: Request, rel: &str) -> std::io::Result<()
     };
     let accepts_gzip = req_header(&req, "Accept-Encoding").map(|v| v.contains("gzip")).unwrap_or(false);
     let ct = mime(rel);
-    let cache = "public, max-age=86400";
+    // The window may keep a copy but must ask every time ("no-cache" + ETag): with a fixed port
+    // (--control PORT, MDCRAFT_CONTROL_PORT) the address stays the same across versions, and a
+    // day-long max-age kept running the previous version's interface after an update.
+    let etag = etag_of(rel, gz);
+    let cache = "no-cache";
+    if req_header(&req, "If-None-Match").map(|v| v.split(',').any(|t| t.trim() == etag)).unwrap_or(false) {
+        return req.respond(Response::bytes(304, Vec::new()).header("ETag", &etag).header("Cache-Control", cache));
+    }
     if accepts_gzip {
-        req.respond(Response::bytes(200, gz.to_vec()).header("Content-Type", ct).header("Content-Encoding", "gzip").header("Cache-Control", cache))
+        req.respond(Response::bytes(200, gz.to_vec()).header("Content-Type", ct).header("Content-Encoding", "gzip").header("Cache-Control", cache).header("ETag", &etag))
     } else {
         let data = embedded(rel).unwrap_or_default();
-        req.respond(Response::bytes(200, data).header("Content-Type", ct).header("Cache-Control", cache))
+        req.respond(Response::bytes(200, data).header("Content-Type", ct).header("Cache-Control", cache).header("ETag", &etag))
     }
+}
+
+/// The page's scripts and stylesheets with this build's fingerprint (`/assets/app.js?v=…`), so a
+/// new build never runs with files a web view cached from an earlier one.
+fn versioned_assets(html: &str) -> String {
+    static STAMP: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let stamp = STAMP.get_or_init(|| {
+        let all: Vec<u8> = EMBEDDED.iter().filter(|(p, _)| p.starts_with("assets/")).flat_map(|(p, d)| p.as_bytes().iter().chain(d.iter()).copied()).collect();
+        etag_of("*build*", &all).trim_matches('"').chars().take(12).collect()
+    });
+    html.lines()
+        .map(|l| if l.contains("\"/assets/") { l.replace(".js\"", &format!(".js?v={stamp}\"")).replace(".css\"", &format!(".css?v={stamp}\"")) } else { l.to_string() })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A fingerprint of an embedded file (FNV-1a of its bytes and the version), computed once.
+fn etag_of(rel: &str, data: &[u8]) -> String {
+    static TAGS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, String>>> = std::sync::OnceLock::new();
+    let tags = TAGS.get_or_init(Default::default);
+    if let Some(t) = tags.lock().ok().and_then(|m| m.get(rel).cloned()) {
+        return t;
+    }
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in env!("CARGO_PKG_VERSION").as_bytes().iter().chain(data) {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    let t = format!("\"{h:016x}\"");
+    if let Ok(mut m) = tags.lock() {
+        m.insert(rel.to_string(), t.clone());
+    }
+    t
 }
 
 /// Local files the preview may read: inside a workspace root, or next to (or one

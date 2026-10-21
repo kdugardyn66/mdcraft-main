@@ -1212,7 +1212,74 @@ pub fn render(text: &str, ctx: &Ctx) -> Rendered {
     if slides > 0 {
         html = wrap_slides(&html);
     }
+    if let Some(css) = document_font_css(&meta, slides > 0) {
+        html = format!("<style class=\"ml-doc-fonts\">{css}</style>\n{html}");
+    }
     Rendered { html, title, headings, slides, meta }
+}
+
+/// A font name from the front matter, safe inside CSS quotes. A trailing remark in
+/// parentheses is dropped (`monofont: JetBrains Mono (code)`).
+pub fn clean_font_name(v: &str) -> Option<String> {
+    let v = match v.find('(') {
+        Some(i) => &v[..i],
+        None => v,
+    };
+    let v = v.trim().trim_matches(|c| c == '"' || c == '\'');
+    let ok = !v.is_empty() && v.len() <= 80 && v.chars().all(|c| c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.' | '&' | '+'));
+    ok.then(|| v.to_string())
+}
+
+/// `fontsize: 12pt` (also 12, 11.5pt, 15px, 1.1em) as a CSS length; a bare number is points.
+pub fn clean_font_size(v: &str) -> Option<String> {
+    let v = v.trim().to_ascii_lowercase();
+    let (num, unit) = match v.find(|c: char| c.is_ascii_alphabetic()) {
+        Some(i) => (&v[..i], &v[i..]),
+        None => (v.as_str(), "pt"),
+    };
+    let n: f32 = num.trim().parse().ok()?;
+    let ok = match unit {
+        "pt" => (5.0..=72.0).contains(&n),
+        "px" => (6.0..=96.0).contains(&n),
+        "em" | "rem" => (0.4..=6.0).contains(&n),
+        _ => false,
+    };
+    ok.then(|| format!("{}{unit}", num.trim()))
+}
+
+/// CSS for `mainfont`, `monofont` and `fontsize` in the front matter (pandoc's names). They
+/// win over the theme's fonts: the theme sets `--font-body`, `--font-head` and `--font-mono`
+/// on `.markdown-body.theme-…`; the selector here is more specific. `fontsize` sets the body
+/// size of documents (slides keep their own sizes).
+pub fn document_font_css(meta: &[(String, String)], deck: bool) -> Option<String> {
+    let get = |k: &str| meta.iter().find(|(key, _)| key.eq_ignore_ascii_case(k)).map(|(_, v)| v.as_str());
+    let generic = |family: &str, default: &str| {
+        crate::fonts::families()
+            .iter()
+            .find(|f| f.family.eq_ignore_ascii_case(family))
+            .map(|f| if f.mono { "monospace" } else if f.serif { "serif" } else { "sans-serif" })
+            .unwrap_or(default)
+            .to_string()
+    };
+    let sel = ".markdown-body.markdown-body.markdown-body";
+    let mut css = String::new();
+    let mut body = String::new();
+    if let Some(f) = get("mainfont").and_then(clean_font_name) {
+        let stack = format!("\"{f}\", {}", generic(&f, "sans-serif"));
+        body.push_str(&format!("--font-body: {stack}; --font-head: {stack}; font-family: {stack};"));
+    }
+    if let Some(f) = get("monofont").and_then(clean_font_name) {
+        let stack = format!("\"{f}\", ui-monospace, Menlo, Consolas, monospace");
+        body.push_str(&format!(" --font-mono: {stack};"));
+        css.push_str(&format!("{sel} :is(code, pre, tt, kbd, samp) {{ font-family: {stack}; }}\n"));
+    }
+    if !body.is_empty() {
+        css.insert_str(0, &format!("{sel} {{ {} }}\n", body.trim()));
+    }
+    if let Some(size) = get("fontsize").and_then(clean_font_size).filter(|_| !deck) {
+        css.push_str(&format!("{sel} {{ font-size: calc({size} * var(--zoom, 1)); }}\n"));
+    }
+    (!css.is_empty()).then_some(css)
 }
 
 /// `<!-- pagebreak -->` / `<!-- page-break -->` / `<!-- newpage -->`: a page break when printing.
@@ -1324,6 +1391,26 @@ mod tests {
 
     fn ctx(s: &Settings) -> Ctx<'_> {
         Ctx::new(s, std::env::temp_dir().join("t.md"), vec![])
+    }
+
+    #[test]
+    fn front_matter_fonts() {
+        let s = Settings::default();
+        let md = "---\ntitle: T\nmainfont: Montserrat\nmonofont: JetBrains Mono (code)\nfontsize: 12pt\n---\n\n# Hi\n\nText `x`\n";
+        let r = render(md, &ctx(&s));
+        assert!(r.html.starts_with("<style class=\"ml-doc-fonts\">"), "{}", r.html);
+        assert!(r.html.contains("--font-body: \"Montserrat\", sans-serif"), "{}", r.html);
+        assert!(r.html.contains("--font-mono: \"JetBrains Mono\", ui-monospace"), "{}", r.html);
+        assert!(r.html.contains("font-size: calc(12pt * var(--zoom, 1))"), "{}", r.html);
+        // nothing without the keys, and nothing unsafe gets into the CSS
+        assert!(!render("# Hi\n", &ctx(&s)).html.contains("ml-doc-fonts"));
+        let bad = render("---\nmainfont: x; } body { color: red\nfontsize: 900pt\n---\n\nText\n", &ctx(&s));
+        assert!(!bad.html.contains("ml-doc-fonts"), "{}", bad.html);
+        assert_eq!(clean_font_size("11"), Some("11pt".into()));
+        assert_eq!(clean_font_size("15px"), Some("15px".into()));
+        assert_eq!(clean_font_size("12 pt"), Some("12pt".into()));
+        assert_eq!(clean_font_name("'Source Serif 4'"), Some("Source Serif 4".into()));
+        assert_eq!(clean_font_name("</style><script>"), None);
     }
 
     #[test]

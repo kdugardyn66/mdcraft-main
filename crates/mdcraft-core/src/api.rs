@@ -102,6 +102,7 @@ pub fn handle(app: &Arc<App>, req: Request, path: &str, qs: &[(String, String)])
                 "author": prefs::author(),
                 "prefs": prefs::load(),
                 "recent": prefs::recent(),
+                "templatesDir": crate::user_templates::dir().to_string_lossy(),
                 "startup": app.startup.lock().map(|s| {
                     // under the same lock, so the window knows whether a file it adds later is seen
                     app.startup_read.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -161,6 +162,7 @@ pub fn handle(app: &Arc<App>, req: Request, path: &str, qs: &[(String, String)])
                 Err(e) => req.respond(err(500, format!("cannot save {}: {e}", p.display()))),
             }
         }
+        ("GET", "/api/fonts") => req.respond(json_resp(200, &json!({"fonts": crate::fonts::families()}))),
         ("GET", "/api/file/stat") => {
             let Some(p) = q(qs, "path") else { return Ok(req.respond(err(400, "path required"))) };
             let p = norm_path(&expand(p));
@@ -226,6 +228,55 @@ pub fn handle(app: &Arc<App>, req: Request, path: &str, qs: &[(String, String)])
             let Some(t) = q(qs, "id").and_then(mdcraft_templates::get) else { return Ok(req.respond(err(404, "no such template"))) };
             let v = template_preview(app, t);
             req.respond(json_resp(200, &v).header("Cache-Control", "max-age=60"))
+        }
+        // ---------------------------------------------------------------- custom templates
+        ("GET", "/api/user-templates") => {
+            let dir = crate::user_templates::dir();
+            req.respond(json_resp(200, &json!({"dir": dir.to_string_lossy(), "templates": crate::user_templates::list_in(&dir)})))
+        }
+        ("GET", "/api/user-template") => {
+            let Some(p) = q(qs, "path").map(|p| norm_path(&expand(p))) else { return Ok(req.respond(err(400, "path required"))) };
+            match crate::user_templates::instantiate(&p, &template_vars()) {
+                Ok(text) => {
+                    let t = crate::user_templates::describe(&p);
+                    req.respond(json_resp(200, &json!({"path": p.to_string_lossy(), "name": t.as_ref().map(|t| t.name.clone()), "kind": t.map(|t| t.kind), "text": text})))
+                }
+                Err(e) => req.respond(err(404, e)),
+            }
+        }
+        ("GET", "/api/user-template/preview") => {
+            let Some(p) = q(qs, "path").map(|p| norm_path(&expand(p))) else { return Ok(req.respond(err(400, "path required"))) };
+            match crate::user_templates::instantiate(&p, &template_vars()) {
+                Ok(text) => {
+                    let settings = app.settings();
+                    let mut ctx = Ctx::new(&settings, p.clone(), vec![]);
+                    ctx.sourcepos = false;
+                    ctx.allow_scripts = false;
+                    let r = markdown::render(&text, &ctx);
+                    let meta: serde_json::Map<String, Value> = r.meta.into_iter().map(|(k, v)| (k, Value::String(v))).collect();
+                    req.respond(json_resp(200, &json!({"html": r.html, "slides": r.slides, "meta": meta, "title": r.title})))
+                }
+                Err(e) => req.respond(err(404, e)),
+            }
+        }
+        ("POST", "/api/user-template/rename") => {
+            let body = read_json(&req);
+            let (Some(p), Some(name)) = (body.get("path").and_then(|v| v.as_str()), body.get("name").and_then(|v| v.as_str())) else {
+                return Ok(req.respond(err(400, "path and name required")));
+            };
+            match crate::user_templates::rename_in(&crate::user_templates::dir(), &expand(p), name) {
+                Ok(to) => req.respond(json_resp(200, &json!({"path": to.to_string_lossy()}))),
+                Err(e) => req.respond(err(400, e)),
+            }
+        }
+        ("POST", "/api/user-template/delete") => {
+            let body = read_json(&req);
+            let Some(p) = body.get("path").and_then(|v| v.as_str()) else { return Ok(req.respond(err(400, "path required"))) };
+            let Some(trash) = crate::user_templates::trash_dir() else { return Ok(req.respond(err(500, "no Trash folder"))) };
+            match crate::user_templates::delete_in(&crate::user_templates::dir(), &expand(p), &trash) {
+                Ok(to) => req.respond(json_resp(200, &json!({"trash": to.to_string_lossy()}))),
+                Err(e) => req.respond(err(400, e)),
+            }
         }
         ("GET", "/api/emoji-preview") => {
             // :shortcode: → glyph, through the renderer's own shortcode table
@@ -375,7 +426,7 @@ fn template_preview(app: &Arc<App>, t: &mdcraft_templates::Template) -> Value {
 
 const IMAGE_EXT: &[&str] = &["png", "jpg", "jpeg", "gif", "svg", "webp", "avif", "bmp", "tif", "tiff", "heic", "heif", "ico"];
 const MEDIA_EXT: &[&str] = &["mp4", "webm", "mkv", "mov", "avi", "m4v", "ogv", "mp3", "wav", "ogg", "m4a", "flac", "opus"];
-const MD_EXT: &[&str] = &["md", "markdown", "mdown", "mkd", "txt", "mdx"];
+const MD_EXT: &[&str] = &["md", "markdown", "mdown", "mkd", "txt", "mdx", "mdd", "mds"];
 const DATA_EXT: &[&str] = &["csv", "tsv", "json", "pdb", "sdf", "mol", "cif", "py", "puml", "mmd", "dot"];
 
 fn list_dir(dir: &Path, filter: &str) -> Result<Value, String> {

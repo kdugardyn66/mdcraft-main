@@ -17,10 +17,54 @@ margins: normal        # normal · narrow · wide
 watermark: DRAFT       # diagonal text on every page
 numbered: true         # 1. / 1.1 / 1.1.1 heading numbers
 justify: true          # justified paragraphs
+mainfont: Montserrat   # the document's font (instead of the theme's)
+monofont: JetBrains Mono   # the font of code
+fontsize: 12pt         # body text size (pt or px; slides keep their own sizes)
 ---
 ```
 
-The **Design** tab, **File › Info** and **File › Print** edit these keys for you.
+The **Design** tab, **File › Info** and **File › Print** edit these keys for you. Default
+`mainfont`, `monofont` and `fontsize` for new documents are set in **File › Options ›
+Document fonts**. A font that isn't installed falls back to a similar one.
+
+## My templates
+
+Your own templates are listed under **File › New › My templates**, apart from the standard
+ones. They are Markdown files in the templates folder (`~/Library/Application Support/mdcraft/templates`
+on macOS, `~/.config/mdcraft/templates` on Linux):
+
+| Extension | Makes |
+|---|---|
+| `.mdd` | a document |
+| `.mds` | a slide deck |
+
+- **Create:** *New document template* or *New slide template* on the New page, or save any
+  document as a template: **File › Save As**, File type **Markdown template** (MdCraft picks
+  `.mdd` or `.mds` from the document). Templates are always saved in the templates folder,
+  whatever folder the Save window shows; only the name you type is used.
+- **Use:** click it on the New page (or on Home): a new, unsaved document. The placeholders
+  below are filled in.
+- **Edit:** the pencil on the card opens the template file itself; save it as usual.
+- **Rename / delete:** the other buttons on the card. Deleting moves the file to the Trash.
+
+Placeholders: `{{author}}`, `{{date}}` (2026-10-21), `{{date_long}}` (21 October 2026),
+`{{month_year}}`, `{{year}}`, `{{next_year}}`, `{{quarter}}`.
+
+## Fonts and colours for part of a document
+
+The **Font** group on the Home tab (font, size, highlight, font colour) writes HTML with a
+`style`, which Markdown keeps as it is: a `<span>` for words, a `<div>` (with blank lines, so
+the Markdown inside still works) for whole paragraphs:
+
+```markdown
+Some <span style="background-color: yellow">highlighted</span> words.
+
+<div style="font-family: Arial; font-size: 20pt; color: #333333; background-color: #f2f2f2; padding: 8px">
+
+A full paragraph with its own font, size, colour and background.
+
+</div>
+```
 
 ## Document themes (Word-style)
 

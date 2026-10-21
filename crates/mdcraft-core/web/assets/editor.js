@@ -423,6 +423,117 @@
     view.focus();
   };
 
+  // ------------------------------------------------------------------ inline styles
+  // Font, size, text colour and background are written as HTML with a style attribute, which
+  // every Markdown renderer keeps: <span style="…">words</span> inside a paragraph, and
+  // <div style="…"> (with blank lines, so the Markdown inside still works) around paragraphs.
+  const parseStyle = (s) => {
+    const m = new Map();
+    for (const part of String(s || '').split(';')) {
+      const i = part.indexOf(':');
+      if (i > 0) { const k = part.slice(0, i).trim().toLowerCase(), v = part.slice(i + 1).trim(); if (k && v) m.set(k, v); }
+    }
+    return m;
+  };
+  const styleText = (m) => [...m].map(([k, v]) => k + ': ' + v).join('; ');
+  /** Every <span>/<div> in the text, with where its tags are and its style (if it has only a style). */
+  function styledElements(text) {
+    const out = [], stack = [];
+    const re = /<(span|div)\b([^>]*)>|<\/(span|div)\s*>/gi;
+    let m;
+    while ((m = re.exec(text))) {
+      if (m[1]) {
+        const sm = /^\s+style\s*=\s*"([^"]*)"\s*$/i.exec(m[2]);
+        stack.push({ tag: m[1].toLowerCase(), openFrom: m.index, openTo: m.index + m[0].length, style: sm ? sm[1] : null });
+      } else {
+        const tag = m[3].toLowerCase();
+        for (let i = stack.length - 1; i >= 0; i--) {
+          if (stack[i].tag === tag) { const e = stack.splice(i, 1)[0]; e.closeFrom = m.index; e.closeTo = m.index + m[0].length; out.push(e); break; }
+        }
+      }
+    }
+    return out.filter((e) => e.style !== null);
+  }
+  /** Styled elements around from..to, innermost first. */
+  function enclosing(text, from, to) {
+    return styledElements(text).filter((e) => e.openTo <= from && e.closeFrom >= to).sort((a, b) => b.openFrom - a.openFrom);
+  }
+  /** True when from..to is all of the element's content (apart from blank space). */
+  const fills = (text, e, from, to) => text.slice(e.openTo, from).trim() === '' && text.slice(to, e.closeFrom).trim() === '';
+
+  /** The style at the cursor or selection: the properties of the elements around it (inner wins). */
+  E.styleAt = () => {
+    const st = view.state, { from, to } = st.selection.main;
+    const text = st.doc.toString();
+    const out = new Map();
+    for (const e of enclosing(text, from, to).reverse()) for (const [k, v] of parseStyle(e.style)) out.set(k, v);
+    return out;
+  };
+
+  /**
+   * Sets CSS properties on the selection ({'font-family': '"Arial"', color: null…}; null removes).
+   * The element the selection fills (or, with only a cursor, the one around it) is changed in
+   * place; otherwise the selection is wrapped: a <span> within a line, a <div> around lines.
+   * An element left without properties is removed. opts.block: always a <div> (whole paragraphs).
+   */
+  E.applyStyle = (props, opts) => {
+    opts = opts || {};
+    const st = view.state;
+    const text = st.doc.toString();
+    let { from, to } = st.selection.main;
+    const cursorOnly = from === to;
+    const around = enclosing(text, from, to);
+    let target = around.find((e) => fills(text, e, from, to)) || null;
+    if (!target && cursorOnly && around.length && around[0].tag === 'span') target = around[0];
+    // only removing: use the nearest element that has the property
+    const removing = Object.values(props).every((v) => v == null);
+    if (removing && !target) target = around.find((e) => Object.keys(props).some((k) => parseStyle(e.style).has(k))) || null;
+    if (removing && target && !Object.keys(props).some((k) => parseStyle(target.style).has(k))) target = around.find((e) => Object.keys(props).some((k) => parseStyle(e.style).has(k))) || null;
+    if (target) {
+      const m = parseStyle(target.style);
+      for (const [k, v] of Object.entries(props)) { if (v == null || v === '') m.delete(k); else m.set(k, v); }
+      if (target.tag === 'div' && m.has('background-color') && !m.has('padding')) m.set('padding', '8px');
+      if (target.tag === 'div' && !m.has('background-color') && m.get('padding') === '8px') m.delete('padding');
+      let changes;
+      if (m.size) changes = [{ from: target.openFrom, to: target.openTo, insert: '<' + target.tag + ' style="' + styleText(m) + '">' }];
+      else {
+        // no properties left: take the tags (and a div's blank lines) away
+        let a = target.openFrom, b = target.openTo, c = target.closeFrom, d = target.closeTo;
+        if (target.tag === 'div') { while (b < c && /\s/.test(text[b])) b++; while (c > b && /\s/.test(text[c - 1])) c--; }
+        changes = [{ from: a, to: b, insert: '' }, { from: c, to: d, insert: '' }];
+      }
+      view.dispatch({ changes, userEvent: 'input' });
+      view.focus();
+      return true;
+    }
+    if (removing) return false;
+    const m = new Map();
+    for (const [k, v] of Object.entries(props)) if (v != null && v !== '') m.set(k, v);
+    if (cursorOnly) {
+      const w = wordAt(from);
+      if (w) { from = w.from; to = w.to; }
+    }
+    let sel = st.sliceDoc(from, to);
+    const block = opts.block || sel.includes('\n');
+    if (block) {
+      if (m.has('background-color') && !m.has('padding')) m.set('padding', '8px');
+      const l1 = st.doc.lineAt(from);
+      let l2 = st.doc.lineAt(to);
+      if (to === l2.from && to > from) l2 = st.doc.line(l2.number - 1);
+      from = l1.from; to = l2.to; sel = st.sliceDoc(from, to);
+      const before = l1.number > 1 && st.doc.line(l1.number - 1).text.trim() !== '' ? '\n' : '';
+      const after = l2.number < st.doc.lines && st.doc.line(l2.number + 1).text.trim() !== '' ? '\n' : '';
+      const open = before + '<div style="' + styleText(m) + '">\n\n';
+      view.dispatch({ changes: { from, to, insert: open + sel + '\n\n</div>' + after }, selection: { anchor: from + open.length, head: from + open.length + sel.length }, scrollIntoView: true, userEvent: 'input' });
+    } else {
+      const inner = sel || 'text';
+      const open = '<span style="' + styleText(m) + '">';
+      view.dispatch({ changes: { from, to, insert: open + inner + '</span>' }, selection: { anchor: from + open.length, head: from + open.length + inner.length }, scrollIntoView: true, userEvent: 'input' });
+    }
+    view.focus();
+    return true;
+  };
+
   // ------------------------------------------------------------------ front matter
   const FM_RE = /^---\r?\n([\s\S]*?)\r?\n(---|\.\.\.)\r?\n?/;
   E.frontMatter = () => {
