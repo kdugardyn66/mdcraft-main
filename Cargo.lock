@@ -1242,7 +1242,7 @@ dependencies = [
 
 [[package]]
 name = "mdcraft"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "mdcraft-core",
  "muda",
@@ -1258,7 +1258,7 @@ dependencies = [
 
 [[package]]
 name = "mdcraft-cli"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "mdcraft-core",
  "serde_json",
@@ -1266,7 +1266,7 @@ dependencies = [
 
 [[package]]
 name = "mdcraft-core"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "comrak",
  "diffy",
@@ -1280,7 +1280,7 @@ dependencies = [
 
 [[package]]
 name = "mdcraft-templates"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "serde",
 ]

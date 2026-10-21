@@ -76,7 +76,7 @@
       thumb(t),
       h('span.md-tpl-name', t.name),
       small ? null : h('span.md-tpl-desc', t.description));
-    card.addEventListener('click', () => MD.newFromTemplate(t.id));
+    card.addEventListener('click', () => MD.uiNew(t.id));
     return card;
   }
   let templates = null;
@@ -105,10 +105,10 @@
           act('trash', 'Delete (move to the Trash)', () => MD.deleteUserTemplate(t).then((ok) => ok && redraw && redraw())))),
       h('span.md-tpl-name', t.name),
       small ? null : h('span.md-tpl-desc', (t.kind === 'presentation' ? 'Slides' : 'Document') + (t.description && t.description !== t.name ? ' · ' + t.description : '')));
-    card.addEventListener('click', () => MD.newFromUserTemplate(t.path));
+    card.addEventListener('click', () => MD.uiNewFromUserTemplate(t.path));
     return card;
   }
-  MD.editUserTemplate = (t) => MD.openPath(t.path);
+  MD.editUserTemplate = (t) => MD.uiOpen(t.path);
   MD.renameUserTemplate = async (t) => {
     const name = await MD.prompt('Rename template', 'Name', t.name);
     if (!name || name === t.name) return false;
@@ -134,8 +134,8 @@
     const btn = (icon, label, run, title) => h('button.md-btn', { onclick: run, title: title || '' }, MD.icon(icon, 18), label);
     const head = h('div.md-bs-section-head.md-mytpl-head', h('h2', 'My templates'),
       h('div.md-mytpl-actions',
-        btn('file-plus', 'New document template', () => MD.newTemplate('document')),
-        btn('present', 'New slide template', () => MD.newTemplate('presentation')),
+        btn('file-plus', 'New document template', () => MD.uiNewTemplate('document')),
+        btn('present', 'New slide template', () => MD.uiNewTemplate('presentation')),
         MD.doc.open ? btn('save-as', 'Save this document as a template', () => { MD.closeBackstage(); MD.saveAs({ template: true }); }) : null,
         MD.isNative() ? btn('folder-open', 'Templates folder', () => MD.native('reveal', { path: MD.app.templatesDir }), MD.app.templatesDir) : null));
     const body = shown.length ? h('div.md-tpl-cards', shown.map((t) => userTemplateCard(t, false, redraw)))
@@ -166,7 +166,7 @@
           return;
         }
         if (r.missing) { MD.toast(r.path + ' no longer exists'); return; }
-        MD.openPath(r.path);
+        MD.uiOpen(r.path);
       });
       table.append(row);
     }
@@ -354,7 +354,7 @@
         nav.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.m === m));
         if (m === 'recent') right.replaceChildren(h('h2', 'Recent documents'), recentList(recent));
         else if (m === 'pinned') right.replaceChildren(h('h2', 'Pinned'), recentList(recent.filter((r) => r.pinned), { empty: 'Pin documents you use often: hover a recent document and click the pin.' }));
-        else right.replaceChildren(h('h2', 'Browse this computer'), MD.folderBrowser({ mode: 'open', dir: MD.doc && MD.doc.saved ? MD.dirname(MD.doc.path) : null, onPick: (p) => MD.openPath(p) }));
+        else right.replaceChildren(h('h2', 'Browse this computer'), MD.folderBrowser({ mode: 'open', dir: MD.doc && MD.doc.saved ? MD.dirname(MD.doc.path) : null, onPick: (p) => MD.uiOpen(p) }));
         MDIcons.fill(right);
       };
       nav.append(

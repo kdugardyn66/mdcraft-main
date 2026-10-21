@@ -110,8 +110,8 @@
   C('file.backstage', { label: 'File', icon: 'file', key: 'Alt+F', run: () => MD.openBackstage('home') });
   C('file.close-backstage', { label: 'Back to the document', icon: 'arrow-left', run: () => MD.closeBackstage() });
   C('file.new', { label: 'New…', icon: 'file-plus', key: 'Mod+N', keywords: 'template create', run: () => MD.openBackstage('new') });
-  C('file.newBlank', { label: 'New blank document', icon: 'file-md', run: () => MD.newFromTemplate('blank') });
-  C('file.newDeck', { label: 'New blank presentation', icon: 'file-slides', run: () => MD.newFromTemplate('blank-deck') });
+  C('file.newBlank', { label: 'New blank document', icon: 'file-md', run: () => MD.uiNew('blank') });
+  C('file.newDeck', { label: 'New blank presentation', icon: 'file-slides', run: () => MD.uiNew('blank-deck') });
   C('file.open', { label: 'Open…', icon: 'folder-open', key: 'Mod+O', run: () => MD.openDialog() });
   C('file.save', { label: 'Save', icon: 'save', key: 'Mod+S', run: () => MD.save() });
   C('file.saveAs', { label: 'Save As…', icon: 'save-as', key: 'Mod+Shift+S', run: () => MD.saveAs() });
@@ -433,7 +433,7 @@
   C('help.palette', { label: 'Command palette', icon: 'command', key: 'Mod+Shift+P', run: () => MD.run('help.search') });
   C('help.shortcuts', { label: 'Keyboard shortcuts', icon: 'keyboard', key: 'Mod+/', run: () => MD.shortcutsDialog() });
   C('help.about', { label: 'About MdCraft', icon: 'logo', run: () => MD.openBackstage('about') });
-  C('help.markdown', { label: 'Markdown guide', icon: 'help', keywords: 'syntax help manual tour', run: () => MD.newFromTemplate('welcome') });
+  C('help.markdown', { label: 'Markdown guide', icon: 'help', keywords: 'syntax help manual tour', run: () => MD.uiNew('welcome') });
 
   // ================================================================== keyboard
   function keyOf(e) {

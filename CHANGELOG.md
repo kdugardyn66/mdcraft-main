@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.3 — 2026-10-21
+
+- **New and Open use a new window** while the window has a document or slide deck open; an
+  empty window is used for it. This covers File › New (standard templates, My templates, New
+  document / slide template), Home, File › Open (recent, pinned, browse, Browse…), ⌘O, the
+  New blank document / presentation commands and the Markdown guide. Opening the document the
+  window already shows does nothing. A browser tab (`mdcraft-cli serve`) keeps one document.
+- Removed **New window** from the ribbon (View › Window); ⇧⌘N and command search still have it.
+- `mdcraft --user-template FILE.mdd|.mds` and `mdcraft --new-template document|presentation`
+  start a window with a new document from your template, or a new template.
+
 ## 0.2.2 — 2026-10-21
 
 ### Templates and saving

@@ -246,7 +246,7 @@
     if (MD.isNative()) {
       try {
         const p = await MD.native('open-dialog', { title: 'Open', filters: [['Markdown', ['md', 'markdown', 'mdown', 'mkd', 'txt']], ['Markdown templates', ['mdd', 'mds']], ['All files', ['*']]], dir: doc.saved ? MD.dirname(doc.path) : MD.app.documents });
-        if (p) MD.openPath(p);
+        if (p) MD.uiOpen(p);
         return;
       } catch (e) { if (forceNative) { MD.toast(e.message); return; } }
     }
@@ -375,6 +375,18 @@
     document.body.classList.add('md-no-document');
     updateTitle(); updateStatus();
     MD.openBackstage('home');
+  };
+  // ------------------------------------------------------------------ New / Open from the File view
+  // In the desktop app, New and Open go to a new window while this one has a document or deck;
+  // an empty window is used for it. (Agents and files opened from Finder keep their own rules.)
+  const elsewhere = () => MD.isNative() && doc.open;
+  const spawn = (args) => { MD.native('new-window', args); if (MD.backstageOpen()) MD.closeBackstage(); MD.toast('Opening in a new window…', 2500); };
+  MD.uiNew = (id) => (elsewhere() ? spawn({ template: id }) : MD.newFromTemplate(id));
+  MD.uiNewFromUserTemplate = (path) => (elsewhere() ? spawn({ userTemplate: path }) : MD.newFromUserTemplate(path));
+  MD.uiNewTemplate = (kind) => (elsewhere() ? spawn({ newTemplate: kind }) : MD.newTemplate(kind));
+  MD.uiOpen = (path) => {
+    if (doc.open && doc.saved && doc.path === path) { MD.closeBackstage(); return; } // already here
+    return elsewhere() ? spawn({ path }) : MD.openPath(path);
   };
   MD.newWindow = () => { if (MD.isNative()) MD.native('new-window', {}); else MD.toast('New windows are available in the desktop app'); };
 
@@ -842,6 +854,8 @@
     const st = MD.app.startup || {};
     if (st.open) await MD.openPath(st.open);
     else if (st.copyOf) await MD.openCopy(st.copyOf);
+    else if (st.userTemplate) await MD.newFromUserTemplate(st.userTemplate);
+    else if (st.newTemplate) await MD.newTemplate(st.newTemplate);
     else if (st.template) await MD.newFromTemplate(st.template);
     else if (MD.pref('startup') === 'blank') await MD.newFromTemplate('blank');
     else if (MD.pref('startup') === 'last' && (MD.app.recent || []).find((r) => !r.missing)) await MD.openPath(MD.app.recent.find((r) => !r.missing).path);

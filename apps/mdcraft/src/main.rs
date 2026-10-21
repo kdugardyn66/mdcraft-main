@@ -5,6 +5,8 @@
 //! mdcraft [FILE.md]                 open a document (or the start page)
 //! mdcraft --template ID             a new document from a template (report, pitch…)
 //! mdcraft --copy-of FILE.md         FILE as a new, unsaved document (a version changed elsewhere)
+//! mdcraft --user-template FILE.mdd a new document from one of the user's templates (.mdd/.mds)
+//! mdcraft --new-template KIND       a new template: document or presentation
 //! mdcraft --control [PORT]          let AI agents drive this window (mdcraft-cli mcp --connect)
 //!                                   (or MDCRAFT_CONTROL_PORT=PORT, e.g. `launchctl setenv` on macOS)
 //! mdcraft --version
@@ -52,7 +54,7 @@ fn main() {
     }
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
-            "mdcraft {}\n\nUSAGE:\n  mdcraft [FILE.md]\n  mdcraft --copy-of FILE.md (FILE as a new, unsaved document)\n  mdcraft --template ID     (report, letter, pitch, status… see `mdcraft-cli templates`)\n  mdcraft --control [PORT]  let AI agents drive this window: mdcraft-cli mcp --connect [PORT]\n\nENVIRONMENT:\n  MDCRAFT_CONTROL_PORT=PORT  like --control PORT (macOS: `launchctl setenv` reaches Finder/Dock launches)\n",
+            "mdcraft {}\n\nUSAGE:\n  mdcraft [FILE.md]\n  mdcraft --copy-of FILE.md (FILE as a new, unsaved document)\n  mdcraft --user-template FILE.mdd|.mds  (a new document from one of your templates)\n  mdcraft --new-template document|presentation  (start a new template)\n  mdcraft --template ID     (report, letter, pitch, status… see `mdcraft-cli templates`)\n  mdcraft --control [PORT]  let AI agents drive this window: mdcraft-cli mcp --connect [PORT]\n\nENVIRONMENT:\n  MDCRAFT_CONTROL_PORT=PORT  like --control PORT (macOS: `launchctl setenv` reaches Finder/Dock launches)\n",
             env!("CARGO_PKG_VERSION")
         );
         return;
@@ -73,6 +75,17 @@ fn startup(args: &[String]) -> Value {
                 if let Some(t) = args.get(i + 1) {
                     return json!({"template": t});
                 }
+            }
+            Some("--user-template") => {
+                let p = args.get(i + 1).map(|a| util::norm_path(Path::new(a)));
+                return match p.filter(|p| p.is_file()) {
+                    Some(p) => json!({"userTemplate": p.to_string_lossy()}),
+                    None => Value::Null,
+                };
+            }
+            Some("--new-template") => {
+                let kind = if args.get(i + 1).map(|k| k == "presentation").unwrap_or(false) { "presentation" } else { "document" };
+                return json!({"newTemplate": kind});
             }
             Some("--copy-of") => {
                 let p = args.get(i + 1).map(|a| util::norm_path(Path::new(a)));
@@ -195,7 +208,8 @@ fn run(args: &[String]) -> Result<(), String> {
                     let mut rest = paths.into_iter();
                     if let (Some(first), Ok(mut s)) = (rest.next(), app.startup.lock()) {
                         let read = app.startup_read.load(std::sync::atomic::Ordering::SeqCst);
-                        if !read && s.get("open").is_none() && s.get("template").is_none() && s.get("copyOf").is_none() {
+                        // only when the window wasn't started for something else
+                        if !read && s.as_object().map(|o| o.is_empty()).unwrap_or(true) {
                             *s = json!({"open": first.to_string_lossy()});
                         } else {
                             pending.push(first);
@@ -282,7 +296,7 @@ fn run(args: &[String]) -> Result<(), String> {
                             reveal(Path::new(p));
                         }
                     }
-                    "new-window" => new_window(msg["path"].as_str(), msg["copy"].as_bool().unwrap_or(false)),
+                    "new-window" => new_window(&msg),
                     other => reply(Value::Null, Some(format!("unknown command {other}"))),
                 }
             }
@@ -441,11 +455,20 @@ fn reveal(p: &Path) {
 
 /// Another window: a new mdcraft process (each window has its own document and server).
 /// `copy`: show the file as a new, unsaved document instead of opening it.
-fn new_window(path: Option<&str>, copy: bool) {
+/// `msg`: {path} opens a file, {path, copy: true} shows it as a new unsaved document,
+/// {template: id} a new document from a template, {userTemplate: path} from one of the user's
+/// templates, {newTemplate: "document" | "presentation"} starts a new template; {} is empty.
+fn new_window(msg: &Value) {
     let Ok(exe) = std::env::current_exe() else { return };
     let mut cmd = std::process::Command::new(exe);
-    if let Some(p) = path {
-        if copy {
+    if let Some(t) = msg["template"].as_str() {
+        cmd.args(["--template", t]);
+    } else if let Some(p) = msg["userTemplate"].as_str() {
+        cmd.args(["--user-template", p]);
+    } else if let Some(k) = msg["newTemplate"].as_str() {
+        cmd.args(["--new-template", k]);
+    } else if let Some(p) = msg["path"].as_str() {
+        if msg["copy"].as_bool().unwrap_or(false) {
             cmd.arg("--copy-of");
         }
         cmd.arg(p);

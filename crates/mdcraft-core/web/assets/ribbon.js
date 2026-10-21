@@ -287,7 +287,7 @@
       { label: 'Zoom', items: [L('view.zoomReset'), { col: [s('view.zoomIn'), s('view.zoomOut'), s('view.pageWidth')] }] },
       { label: 'Interface', items: [{ col: [s('view.light'), s('view.dark'), s('view.system')] }, L('view.darkPage')] },
       { label: 'Preview', items: [{ col: [s('view.refresh'), s('view.mathEngine'), s('view.runCode')] }] },
-      { label: 'Window', items: [L('file.newWindow'), { col: [s('view.ribbon'), s('help.shortcuts'), s('help.search')] }] },
+      { label: 'Window', items: [{ col: [s('view.ribbon'), s('help.shortcuts'), s('help.search')] }] },
     ] },
     { id: 'table', label: 'Table', contextual: true, groups: [
       { label: 'Rows & columns', items: [L('table.addRow'), L('table.addCol'), L('table.delRow')] },
